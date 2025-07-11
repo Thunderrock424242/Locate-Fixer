@@ -46,12 +46,10 @@ public class AsyncLocateHandler {
                     if (result != null) {
                         BlockPos pos = result.getFirst();
                         Holder<Structure> holder = result.getSecond();
-                        String name = holder.getRegisteredName();
 
-                        level.getServer().execute(() -> {
-                            source.sendSuccess(() ->
-                                    Component.literal("📍 Found structure: " + (name != null ? name : "unknown") + " at " + pos.toShortString()), false);
-                        });
+                        level.getServer().execute(() ->
+                                LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, pos, false)
+                        );
                         return;
                     }
                 }
@@ -81,12 +79,10 @@ public class AsyncLocateHandler {
                     if (result != null) {
                         BlockPos pos = result.getFirst();
                         Holder<Biome> holder = result.getSecond();
-                        String name = holder.getRegisteredName();
 
-                        level.getServer().execute(() -> {
-                            source.sendSuccess(() ->
-                                    Component.literal("📍 Found biome: " + (name != null ? name : "unknown") + " at " + pos.toShortString()), false);
-                        });
+                        level.getServer().execute(() ->
+                                LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, pos, true)
+                        );
                         return;
                     }
                 }
@@ -115,16 +111,16 @@ public class AsyncLocateHandler {
 
                 if (result.isPresent()) {
                     Pair<Holder<PoiType>, BlockPos> found = result.get();
-                    String name = found.getFirst().getRegisteredName();
                     BlockPos pos = found.getSecond();
+                    Holder<PoiType> holder = found.getFirst();
 
-                    level.getServer().execute(() -> {
-                        source.sendSuccess(() ->
-                                Component.literal("📍 Found POI: " + (name != null ? name : "unknown") + " at " + pos.toShortString()), false);
-                    });
+                    level.getServer().execute(() ->
+                            LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, false)
+                    );
                 } else {
                     level.getServer().execute(() ->
-                            source.sendFailure(Component.literal("❌ POI not found within " + POI_SEARCH_RADIUS + " blocks.")));
+                            source.sendFailure(Component.literal("❌ POI not found within " + POI_SEARCH_RADIUS + " blocks."))
+                    );
                 }
 
             } catch (Exception e) {
