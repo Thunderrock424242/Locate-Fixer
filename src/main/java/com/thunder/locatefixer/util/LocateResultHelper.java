@@ -40,4 +40,21 @@ public class LocateResultHelper {
         int dz = b.getZ() - a.getZ();
         return Mth.sqrt((float)(dx * dx + dz * dz));
     }
+    public static void sendResult(CommandSourceStack source, String label, String name, BlockPos from, BlockPos to, boolean absoluteY) {
+        int distance = absoluteY
+                ? Mth.floor(Mth.sqrt((float) from.distSqr(to)))
+                : Mth.floor(distXZ(from, to));
+
+        String yText = absoluteY ? String.valueOf(to.getY()) : "~";
+        Component coords = ComponentUtils.wrapInSquareBrackets(
+                Component.translatable("chat.coordinates", to.getX(), yText, to.getZ())
+        ).withStyle(style -> style
+                .withColor(ChatFormatting.GREEN)
+                .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tp @s " + to.getX() + " " + yText + " " + to.getZ()))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.translatable("chat.coordinates.tooltip")))
+        );
+
+        Component message = Component.translatable(label, name, coords, distance);
+        source.sendSuccess(() -> message, false);
+    }
 }

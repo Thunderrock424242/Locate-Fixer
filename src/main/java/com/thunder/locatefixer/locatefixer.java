@@ -1,5 +1,11 @@
 package com.thunder.locatefixer;
 
+import com.mojang.brigadier.CommandDispatcher;
+import com.thunder.locatefixer.command.LocateFixerSchematicCommand;
+import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
+import net.minecraft.commands.CommandSourceStack;
+import net.neoforged.fml.ModList;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
@@ -11,6 +17,8 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
+
+import java.nio.file.Path;
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
 @Mod(locatefixer.MOD_ID)
@@ -30,8 +38,7 @@ public class locatefixer {
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {
-        // Some common setup code
-        LOGGER.info("HELLO FROM COMMON SETUP");
+        SchematicLocatorRegistry.scanWorldEditSchematicsFolder();
 
     }
 
@@ -40,5 +47,15 @@ public class locatefixer {
     public void onServerStarting(ServerStartingEvent event) {
         // Do something when the server starts
         LOGGER.info("HELLO from server starting");
+    }
+    /**
+     * On register commands.
+     *
+     * @param event the event
+     */
+    @SubscribeEvent
+    public void onRegisterCommands(RegisterCommandsEvent event) {
+        CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
+        LocateFixerSchematicCommand.register(dispatcher);
     }
 }
