@@ -32,6 +32,7 @@ public class LocateFixerSchematicCommand {
                                             .map(pos -> {
                                                 // ✅ Use string-based result helper for schematic names
                                                 LocateResultHelper.sendResult(source, "commands.locate.structure.success", id, origin, pos, false);
+                                                LocateResultHelper.startTeleportCountdown(source, level, pos, false);
                                                 return 1;
                                             })
                                             .orElseGet(() -> {
