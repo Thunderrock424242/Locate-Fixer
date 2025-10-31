@@ -22,8 +22,8 @@ public class LocateResultHelper {
                 Component.translatable("chat.coordinates", to.getX(), yText, to.getZ())
         ).withStyle(style -> style
                 .withColor(ChatFormatting.GREEN)
-                .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tp @s " + to.getX() + " " + yText + " " + to.getZ()))
-                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.translatable("chat.coordinates.tooltip")))
+                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/locate teleport " + to.getX() + " " + yText + " " + to.getZ()))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal("Click to preload the area, wait for the countdown, and teleport.")))
         );
 
         Component message = Component.translatable(label,
@@ -50,8 +50,8 @@ public class LocateResultHelper {
                 Component.translatable("chat.coordinates", to.getX(), yText, to.getZ())
         ).withStyle(style -> style
                 .withColor(ChatFormatting.GREEN)
-                .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tp @s " + to.getX() + " " + yText + " " + to.getZ()))
-                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.translatable("chat.coordinates.tooltip")))
+                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/locate teleport " + to.getX() + " " + yText + " " + to.getZ()))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal("Click to preload the area, wait for the countdown, and teleport.")))
         );
 
         Component message = Component.translatable(label, name, coords, distance);
