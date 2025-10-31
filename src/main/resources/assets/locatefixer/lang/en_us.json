@@ -1,0 +1,3 @@
+{
+  "commands.locate.player.success": "Found player %s at %s (%s blocks away)"
+}
