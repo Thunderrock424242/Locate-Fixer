@@ -15,7 +15,6 @@ import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.levelgen.Heightmap;
-import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -58,19 +57,12 @@ public class LocateResultHelper {
             return;
         }
 
-        ChunkPos chunkPos = new ChunkPos(target);
-        ServerChunkCache chunkSource = level.getChunkSource();
-        int ticketIdentifier = chunkPos.hashCode();
-
-        CompletableFuture<Void> preloadFuture = level.getServer().submit(() -> {
-            chunkSource.addRegionTicket(TicketType.POST_TELEPORT, chunkPos, 1, ticketIdentifier);
-            chunkSource.getChunk(chunkPos.x, chunkPos.z, ChunkStatus.FULL, true);
-        });
-
-        player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
-
         CompletableFuture.runAsync(() -> {
-            preloadFuture.join();
+            ChunkPos chunkPos = new ChunkPos(target);
+            ServerChunkCache chunkSource = level.getChunkSource();
+            int ticketIdentifier = chunkPos.hashCode();
+
+            chunkSource.addRegionTicket(TicketType.POST_TELEPORT, chunkPos, 1, ticketIdentifier);
 
             try {
                 for (int seconds = TELEPORT_COUNTDOWN_SECONDS; seconds > 0; seconds--) {
@@ -81,10 +73,9 @@ public class LocateResultHelper {
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                level.getServer().execute(() -> {
-                    player.sendSystemMessage(Component.literal("⚠️ Teleport cancelled."));
-                    chunkSource.removeRegionTicket(TicketType.POST_TELEPORT, chunkPos, 1, ticketIdentifier);
-                });
+                level.getServer().execute(() -> player.sendSystemMessage(
+                        Component.literal("⚠️ Teleport cancelled.")));
+                chunkSource.removeRegionTicket(TicketType.POST_TELEPORT, chunkPos, 1, ticketIdentifier);
                 return;
             }
 
@@ -93,7 +84,6 @@ public class LocateResultHelper {
                     chunkSource.removeRegionTicket(TicketType.POST_TELEPORT, chunkPos, 1, ticketIdentifier);
                     return;
                 }
-
                 double y = absoluteY
                         ? target.getY()
                         : level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, target.getX(), target.getZ());
