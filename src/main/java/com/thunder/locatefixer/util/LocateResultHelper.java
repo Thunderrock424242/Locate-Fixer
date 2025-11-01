@@ -28,19 +28,12 @@ public class LocateResultHelper {
                 : Mth.floor(distXZ(from, to));
 
         String yText = absoluteY ? String.valueOf(to.getY()) : "~";
-        String teleportCommand = String.format("/locate teleport %d %d %d %s",
-                to.getX(),
-                to.getY(),
-                to.getZ(),
-                absoluteY ? "true" : "false");
-
         Component coords = ComponentUtils.wrapInSquareBrackets(
                 Component.translatable("chat.coordinates", to.getX(), yText, to.getZ())
         ).withStyle(style -> style
                 .withColor(ChatFormatting.GREEN)
-                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, teleportCommand))
-                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-                        Component.literal("Click to teleport after preloading.")))
+                .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tp @s " + to.getX() + " " + yText + " " + to.getZ()))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.translatable("chat.coordinates.tooltip")))
         );
 
         Component message = Component.translatable(label,
@@ -111,19 +104,12 @@ public class LocateResultHelper {
                 : Mth.floor(distXZ(from, to));
 
         String yText = absoluteY ? String.valueOf(to.getY()) : "~";
-        String teleportCommand = String.format("/locate teleport %d %d %d %s",
-                to.getX(),
-                to.getY(),
-                to.getZ(),
-                absoluteY ? "true" : "false");
-
         Component coords = ComponentUtils.wrapInSquareBrackets(
                 Component.translatable("chat.coordinates", to.getX(), yText, to.getZ())
         ).withStyle(style -> style
                 .withColor(ChatFormatting.GREEN)
-                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, teleportCommand))
-                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-                        Component.literal("Click to teleport after preloading.")))
+                .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tp @s " + to.getX() + " " + yText + " " + to.getZ()))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.translatable("chat.coordinates.tooltip")))
         );
 
         Component message = Component.translatable(label, name, coords, distance);
