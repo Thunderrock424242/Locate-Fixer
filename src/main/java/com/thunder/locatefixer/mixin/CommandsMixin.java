@@ -10,13 +10,13 @@ import net.minecraft.server.level.ServerPlayer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Commands.class)
 public abstract class CommandsMixin {
 
     @Inject(method = "performPrefixedCommand", at = @At("HEAD"), cancellable = true)
-    private void locatefix$handleTeleportCommand(CommandSourceStack source, String command, CallbackInfoReturnable<Integer> cir) {
+    private static void locatefix$handleTeleportCommand(CommandSourceStack source, String command, CallbackInfo ci) {
         if (command == null) {
             return;
         }
@@ -34,8 +34,7 @@ public abstract class CommandsMixin {
         if (!(source.getEntity() instanceof ServerPlayer)) {
             source.sendFailure(Component.literal("Teleportation is only available for players."));
             source.callback().onFailure();
-            cir.setReturnValue(0);
-            cir.cancel();
+            ci.cancel();
             return;
         }
 
@@ -51,15 +50,13 @@ public abstract class CommandsMixin {
         } catch (NumberFormatException ex) {
             source.sendFailure(Component.literal("Invalid teleport request."));
             source.callback().onFailure();
-            cir.setReturnValue(0);
-            cir.cancel();
+            ci.cancel();
             return;
         }
 
         ServerLevel level = source.getLevel();
         LocateResultHelper.startTeleportCountdown(source, level, new BlockPos(x, y, z), absoluteY);
         source.callback().onSuccess(1);
-        cir.setReturnValue(1);
-        cir.cancel();
+        ci.cancel();
     }
 }
