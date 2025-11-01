@@ -47,10 +47,9 @@ public class AsyncLocateHandler {
                         BlockPos pos = result.getFirst();
                         Holder<Structure> holder = result.getSecond();
 
-                        level.getServer().execute(() -> {
-                            LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, pos, false);
-                            LocateResultHelper.startTeleportCountdown(source, level, pos, false);
-                        });
+                        level.getServer().execute(() ->
+                                LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, pos, false)
+                        );
                         return;
                     }
                 }
@@ -81,10 +80,9 @@ public class AsyncLocateHandler {
                         BlockPos pos = result.getFirst();
                         Holder<Biome> holder = result.getSecond();
 
-                        level.getServer().execute(() -> {
-                            LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, pos, true);
-                            LocateResultHelper.startTeleportCountdown(source, level, pos, true);
-                        });
+                        level.getServer().execute(() ->
+                                LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, pos, true)
+                        );
                         return;
                     }
                 }
@@ -116,10 +114,9 @@ public class AsyncLocateHandler {
                     BlockPos pos = found.getSecond();
                     Holder<PoiType> holder = found.getFirst();
 
-                    level.getServer().execute(() -> {
-                        LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, false);
-                        LocateResultHelper.startTeleportCountdown(source, level, pos, false);
-                    });
+                    level.getServer().execute(() ->
+                            LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, false)
+                    );
                 } else {
                     level.getServer().execute(() ->
                             source.sendFailure(Component.literal("❌ POI not found within " + POI_SEARCH_RADIUS + " blocks."))
