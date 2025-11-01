@@ -1,7 +1,6 @@
 package com.thunder.locatefixer;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.thunder.locatefixer.command.LocateFixerPlayerCommand;
 import com.thunder.locatefixer.command.LocateFixerSchematicCommand;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
 import net.minecraft.commands.CommandSourceStack;
@@ -58,6 +57,5 @@ public class locatefixer {
     public void onRegisterCommands(RegisterCommandsEvent event) {
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
         LocateFixerSchematicCommand.register(dispatcher);
-        LocateFixerPlayerCommand.register(dispatcher);
     }
 }
