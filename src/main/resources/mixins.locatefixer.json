@@ -7,7 +7,7 @@
     "LocateCommandAccessor",
     "LocateCommandInvoker",
     "LocateCommandMixin",
-    "CommandsMixin"
+    "CommandSourceStackMixin"
   ],
   "injectors": {
     "defaultRequire": 1
