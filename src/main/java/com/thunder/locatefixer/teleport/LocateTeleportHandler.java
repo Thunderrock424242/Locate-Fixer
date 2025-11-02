@@ -14,7 +14,6 @@ import java.util.concurrent.CompletableFuture;
 
 public final class LocateTeleportHandler {
 
-    private static final String COMMAND_PREFIX = "say [LocateFixer]TP ";
     private static final int COUNTDOWN_SECONDS = 5;
     private static final int PRELOAD_RADIUS_CHUNKS = 2;
 
@@ -42,75 +41,6 @@ public final class LocateTeleportHandler {
                         player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds + "..."));
                     }
                 });
-        return "/" + COMMAND_PREFIX + dimension.location() + " " + target.getX() + " " + target.getY() + " " + target.getZ();
-    }
-
-    public static void onCommand(CommandEvent event) {
-        ParseResults<CommandSourceStack> results = event.getParseResults();
-        CommandSourceStack source = results.getContext().getSource();
-
-        String input = results.getReader().getString();
-        if (input.startsWith("/")) {
-            input = input.substring(1);
-        }
-        if (!input.startsWith(COMMAND_PREFIX)) {
-            return;
-        }
-
-        if (!(source.getEntity() instanceof ServerPlayer player)) {
-            return;
-        }
-
-        event.setCanceled(true);
-
-        String data = input.substring(COMMAND_PREFIX.length()).trim();
-        String[] tokens = data.split(" ");
-        if (tokens.length != 4) {
-            player.sendSystemMessage(Component.literal("Failed to parse teleport target."));
-            return;
-        }
-
-        ResourceLocation dimensionId = ResourceLocation.tryParse(tokens[0]);
-        if (dimensionId == null) {
-            player.sendSystemMessage(Component.literal("Unknown dimension: " + tokens[0]));
-            return;
-        }
-
-        ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION, dimensionId);
-        ServerLevel level = source.getServer().getLevel(dimension);
-        if (level == null) {
-            player.sendSystemMessage(Component.literal("Dimension not loaded: " + tokens[0]));
-            return;
-        }
-
-        BlockPos target;
-        try {
-            int x = Integer.parseInt(tokens[1]);
-            int y = Integer.parseInt(tokens[2]);
-            int z = Integer.parseInt(tokens[3]);
-            target = new BlockPos(x, y, z);
-        } catch (NumberFormatException e) {
-            player.sendSystemMessage(Component.literal("Invalid coordinates: " + data));
-            return;
-        }
-
-        startTeleportWithPreload(player, level, target);
-    }
-
-    private static void startTeleportWithPreload(ServerPlayer player, ServerLevel level, BlockPos targetPos) {
-        List<ChunkPos> forcedChunks = forceChunks(level, targetPos, PRELOAD_RADIUS_CHUNKS);
-        player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
-
-        CompletableFuture.runAsync(() -> runCountdown(level, player, targetPos, forcedChunks));
-    }
-
-    private static void runCountdown(ServerLevel level, ServerPlayer player, BlockPos targetPos, List<ChunkPos> forcedChunks) {
-        try {
-            for (int secondsLeft = COUNTDOWN_SECONDS; secondsLeft > 0; secondsLeft--) {
-                int finalSecondsLeft = secondsLeft;
-                level.getServer().execute(() -> player.sendSystemMessage(
-                        Component.literal("Teleporting in " + finalSecondsLeft + "...")
-                ));
                 Thread.sleep(1000L);
             }
 
@@ -126,12 +56,6 @@ public final class LocateTeleportHandler {
                 } finally {
                     releaseChunks(level, forcedChunks);
                 }
-                if (!player.isRemoved()) {
-                    player.teleportTo(level, targetPos.getX() + 0.5, targetPos.getY(), targetPos.getZ() + 0.5,
-                            player.getYRot(), player.getXRot());
-                    player.sendSystemMessage(Component.literal("✅ Teleport complete."));
-                }
-                releaseChunks(level, forcedChunks);
             });
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
