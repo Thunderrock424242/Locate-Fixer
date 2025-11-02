@@ -3,6 +3,7 @@ package com.thunder.locatefixer;
 import com.mojang.brigadier.CommandDispatcher;
 import com.thunder.locatefixer.command.LocateFixerSchematicCommand;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
+import com.thunder.locatefixer.teleport.LocateTeleportHandler;
 import net.minecraft.commands.CommandSourceStack;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -35,6 +36,7 @@ public class locatefixer {
         modEventBus.addListener(this::commonSetup);
 
         NeoForge.EVENT_BUS.register(this);
+        NeoForge.EVENT_BUS.addListener(LocateTeleportHandler::onCommand);
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {
