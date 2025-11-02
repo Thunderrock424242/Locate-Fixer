@@ -2,8 +2,6 @@ package com.thunder.locatefixer.integration;
 
 import com.sk89q.worldedit.event.extent.EditSessionEvent;
 import com.sk89q.worldedit.extension.platform.Actor;
-import com.sk89q.worldedit.math.BlockVector3;
-import com.sk89q.worldedit.session.ClipboardHolder;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
 import net.minecraft.core.BlockPos;
 import net.neoforged.bus.api.SubscribeEvent;
