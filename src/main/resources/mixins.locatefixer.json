@@ -6,7 +6,8 @@
   "mixins": [
     "LocateCommandAccessor",
     "LocateCommandInvoker",
-    "LocateCommandMixin"
+    "LocateCommandMixin",
+    "TeleportCommandMixin"
   ],
   "injectors": {
     "defaultRequire": 1
