@@ -1,17 +1,12 @@
 package com.thunder.locatefixer.teleport;
 
-import com.mojang.brigadier.ParseResults;
-import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
-import net.neoforged.neoforge.event.CommandEvent;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +22,26 @@ public final class LocateTeleportHandler {
     }
 
     public static String createCommand(ResourceKey<Level> dimension, BlockPos target) {
+        return "/execute in " + dimension.location() + " run tp @s "
+                + target.getX() + " " + target.getY() + " " + target.getZ();
+    }
+
+    public static void startTeleportWithPreload(ServerPlayer player, ServerLevel level, BlockPos targetPos, Runnable teleportAction) {
+        List<ChunkPos> forcedChunks = forceChunks(level, targetPos, PRELOAD_RADIUS_CHUNKS);
+        player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
+
+        CompletableFuture.runAsync(() -> runCountdown(level, player, forcedChunks, teleportAction));
+    }
+
+    private static void runCountdown(ServerLevel level, ServerPlayer player, List<ChunkPos> forcedChunks, Runnable teleportAction) {
+        try {
+            for (int secondsLeft = COUNTDOWN_SECONDS; secondsLeft > 0; secondsLeft--) {
+                int displaySeconds = secondsLeft;
+                level.getServer().execute(() -> {
+                    if (!player.isRemoved()) {
+                        player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds + "..."));
+                    }
+                });
         return "/" + COMMAND_PREFIX + dimension.location() + " " + target.getX() + " " + target.getY() + " " + target.getZ();
     }
 
@@ -100,6 +115,17 @@ public final class LocateTeleportHandler {
             }
 
             level.getServer().execute(() -> {
+                try {
+                    if (!player.isRemoved()) {
+                        teleportAction.run();
+                    }
+                } catch (Exception e) {
+                    if (!player.isRemoved()) {
+                        player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
+                    }
+                } finally {
+                    releaseChunks(level, forcedChunks);
+                }
                 if (!player.isRemoved()) {
                     player.teleportTo(level, targetPos.getX() + 0.5, targetPos.getY(), targetPos.getZ() + 0.5,
                             player.getYRot(), player.getXRot());
