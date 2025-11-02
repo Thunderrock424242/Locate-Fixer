@@ -20,6 +20,10 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import java.util.Collection;
+import java.util.EnumSet;
+import java.util.Locale;
+
 import javax.annotation.Nullable;
 import java.util.Collection;
 import java.util.EnumSet;
@@ -37,8 +41,8 @@ public abstract class TeleportCommandMixin {
                                                   Collection<? extends Entity> targets,
                                                   ServerLevel level,
                                                   Coordinates position,
-                                                  @Nullable Coordinates rotation,
-                                                  @Nullable Object facing,
+                                                  Coordinates rotation,
+                                                  Object facing,
                                                   CallbackInfoReturnable<Integer> cir) throws CommandSyntaxException {
         if (targets.size() != 1 || rotation != null || facing != null) {
             return;
@@ -80,6 +84,7 @@ public abstract class TeleportCommandMixin {
         });
 
         cir.setReturnValue(targets.size());
+        cir.cancel();
     }
 
     private static String formatDouble(double value) {
