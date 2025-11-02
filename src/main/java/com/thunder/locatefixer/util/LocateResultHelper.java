@@ -1,5 +1,6 @@
 package com.thunder.locatefixer.util;
 
+import com.thunder.locatefixer.teleport.LocateTeleportHandler;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
@@ -18,12 +19,14 @@ public class LocateResultHelper {
                 : Mth.floor(distXZ(from, to));
 
         String yText = absoluteY ? String.valueOf(to.getY()) : "~";
+        String command = buildTeleportCommand(source, to);
         Component coords = ComponentUtils.wrapInSquareBrackets(
                 Component.translatable("chat.coordinates", to.getX(), yText, to.getZ())
         ).withStyle(style -> style
                 .withColor(ChatFormatting.GREEN)
-                .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tp @s " + to.getX() + " " + yText + " " + to.getZ()))
-                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.translatable("chat.coordinates.tooltip")))
+                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, command))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+                        Component.literal("Preload destination chunks, wait 5s, then teleport.")))
         );
 
         Component message = Component.translatable(label,
@@ -46,15 +49,21 @@ public class LocateResultHelper {
                 : Mth.floor(distXZ(from, to));
 
         String yText = absoluteY ? String.valueOf(to.getY()) : "~";
+        String command = buildTeleportCommand(source, to);
         Component coords = ComponentUtils.wrapInSquareBrackets(
                 Component.translatable("chat.coordinates", to.getX(), yText, to.getZ())
         ).withStyle(style -> style
                 .withColor(ChatFormatting.GREEN)
-                .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tp @s " + to.getX() + " " + yText + " " + to.getZ()))
-                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.translatable("chat.coordinates.tooltip")))
+                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, command))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+                        Component.literal("Preload destination chunks, wait 5s, then teleport.")))
         );
 
         Component message = Component.translatable(label, name, coords, distance);
         source.sendSuccess(() -> message, false);
+    }
+
+    private static String buildTeleportCommand(CommandSourceStack source, BlockPos target) {
+        return LocateTeleportHandler.createCommand(source.getLevel().dimension(), target);
     }
 }
