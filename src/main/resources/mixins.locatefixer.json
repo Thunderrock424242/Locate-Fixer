@@ -7,7 +7,8 @@
     "LocateCommandAccessor",
     "LocateCommandInvoker",
     "LocateCommandMixin",
-    "TeleportCommandMixin"
+    "TeleportCommandMixin",
+    "accessor.TeleportCommandLookAtAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

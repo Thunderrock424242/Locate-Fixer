@@ -18,6 +18,7 @@ import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.Collection;
@@ -25,10 +26,9 @@ import java.util.EnumSet;
 import java.util.Locale;
 
 import javax.annotation.Nullable;
-import java.util.Collection;
-import java.util.EnumSet;
-import java.util.Locale;
 import net.neoforged.neoforge.event.EventHooks;
+
+import com.thunder.locatefixer.mixin.accessor.TeleportCommandLookAtAccessor;
 
 @Mixin(TeleportCommand.class)
 public abstract class TeleportCommandMixin {
@@ -42,7 +42,7 @@ public abstract class TeleportCommandMixin {
                                                   ServerLevel level,
                                                   Coordinates position,
                                                   Coordinates rotation,
-                                                  Object facing,
+                                                  @Coerce @Nullable TeleportCommandLookAtAccessor facing,
                                                   CallbackInfoReturnable<Integer> cir) throws CommandSyntaxException {
         if (targets.size() != 1 || rotation != null || facing != null) {
             return;
