@@ -16,6 +16,7 @@ import net.minecraft.world.entity.RelativeMovement;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Coerce;
@@ -33,6 +34,7 @@ import com.thunder.locatefixer.mixin.accessor.TeleportCommandLookAtAccessor;
 @Mixin(TeleportCommand.class)
 public abstract class TeleportCommandMixin {
 
+    @Unique
     private static final SimpleCommandExceptionType LOCATEFIX_INVALID_POSITION =
             new SimpleCommandExceptionType(Component.translatable("commands.teleport.invalidPosition"));
 
@@ -69,13 +71,13 @@ public abstract class TeleportCommandMixin {
 
         LocateTeleportHandler.startTeleportWithPreload(player, level, targetPos, () -> {
             try {
-                locatefix$performTeleport(player, level, x, y, z);
+                locatefixer$performTeleport(player, level, x, y, z);
                 source.sendSuccess(() -> Component.translatable(
                         "commands.teleport.success.location.single",
                         player.getDisplayName(),
-                        formatDouble(x),
-                        formatDouble(y),
-                        formatDouble(z)
+                        locate_Fixer$formatDouble(x),
+                        locate_Fixer$formatDouble(y),
+                        locate_Fixer$formatDouble(z)
                 ), true);
                 player.sendSystemMessage(Component.literal("✅ Teleport complete."));
             } catch (CommandSyntaxException e) {
@@ -87,11 +89,13 @@ public abstract class TeleportCommandMixin {
         cir.cancel();
     }
 
-    private static String formatDouble(double value) {
+    @Unique
+    private static String locate_Fixer$formatDouble(double value) {
         return String.format(Locale.ROOT, "%f", value);
     }
 
-    private static void locatefix$performTeleport(ServerPlayer player,
+    @Unique
+    private static void locatefixer$performTeleport(ServerPlayer player,
                                                   ServerLevel level,
                                                   double x,
                                                   double y,
