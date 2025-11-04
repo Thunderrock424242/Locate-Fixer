@@ -3,9 +3,7 @@ package com.thunder.locatefixer;
 import com.mojang.brigadier.CommandDispatcher;
 import com.thunder.locatefixer.command.LocateFixerSchematicCommand;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
-import com.thunder.locatefixer.teleport.LocateTeleportHandler;
 import net.minecraft.commands.CommandSourceStack;
-import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.slf4j.Logger;
 
@@ -19,7 +17,6 @@ import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 
-import java.nio.file.Path;
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
 @Mod(locatefixer.MOD_ID)
