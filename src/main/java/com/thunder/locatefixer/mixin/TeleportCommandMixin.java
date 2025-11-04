@@ -8,7 +8,6 @@ import net.minecraft.commands.arguments.coordinates.Coordinates;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.commands.TeleportCommand;
-import net.minecraft.server.commands.TeleportCommand.LookAt;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
@@ -35,13 +34,7 @@ public abstract class TeleportCommandMixin {
             new SimpleCommandExceptionType(Component.translatable("commands.teleport.invalidPosition"));
 
     @Inject(method = "teleportToPos", at = @At("HEAD"), cancellable = true)
-    private static void locatefix$preloadTeleport(CommandSourceStack source,
-                                                  Collection<? extends Entity> targets,
-                                                  ServerLevel level,
-                                                  Coordinates position,
-                                                  Coordinates rotation,
-                                                  @Nullable LookAt facing,
-                                                  CallbackInfoReturnable<Integer> cir) throws CommandSyntaxException {
+    private static void locatefix$preloadTeleport(CommandSourceStack source, Collection<? extends Entity> targets, ServerLevel level, Coordinates position, Coordinates rotation, TeleportCommand.LookAt facing, CallbackInfoReturnable<Integer> cir) throws CommandSyntaxException {
         if (targets.size() != 1 || rotation != null || facing != null) {
             return;
         }
