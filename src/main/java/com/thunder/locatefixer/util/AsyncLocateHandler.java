@@ -17,13 +17,17 @@ import net.minecraft.world.entity.ai.village.poi.PoiType;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.levelgen.structure.Structure;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -31,25 +35,33 @@ import static com.thunder.locatefixer.locatefixer.LOGGER;
 
 public class AsyncLocateHandler {
 
-    private static final int[] RINGS = {6400, 16000, 32000, 64000, 128000, 256000};
-    private static final int POI_SEARCH_RADIUS = 256;
-    private static final long CACHE_DURATION_MS = TimeUnit.MINUTES.toMillis(10);
+    private static final int[] DEFAULT_RINGS = {6400, 16000, 32000, 64000, 128000, 256000};
+    private static final ThreadFactory THREAD_FACTORY = buildThreadFactory();
 
-    private static final ExecutorService LOCATE_EXECUTOR = Executors.newFixedThreadPool(Math.max(2, Runtime.getRuntime().availableProcessors() / 2), buildThreadFactory());
+    private static volatile LocateSettings SETTINGS = loadSettings();
+    private static volatile ExecutorService LOCATE_EXECUTOR = buildExecutor(SETTINGS.threadCount());
 
     private static final ConcurrentMap<LocateCacheKey, LocateCacheEntry<Structure>> STRUCTURE_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentMap<LocateCacheKey, LocateCacheEntry<Biome>> BIOME_CACHE = new ConcurrentHashMap<>();
 
     public static void locateStructureAsync(CommandSourceStack source, ResourceOrTagKeyArgument.Result<Structure> structure, BlockPos origin, ServerLevel level) {
+        final LocateSettings settings = SETTINGS;
         CompletableFuture.runAsync(() -> {
             try {
-                LocateCacheKey cacheKey = LocateCacheKey.of(level, structure.asPrintable());
-                LocateCacheEntry<Structure> cacheEntry = getValidCacheEntry(STRUCTURE_CACHE, cacheKey);
+                int[] rings = settings.rings();
+                if (rings.length == 0) {
+                    level.getServer().execute(() ->
+                            source.sendFailure(Component.literal("❌ No locate search radii configured.")));
+                    return;
+                }
+
+                LocateCacheKey cacheKey = LocateCacheKey.of(level, structure.asPrintable(), origin, settings.cacheGranularity());
+                LocateCacheEntry<Structure> cacheEntry = getValidCacheEntry(STRUCTURE_CACHE, cacheKey, settings.cacheDurationMs());
 
                 if (cacheEntry != null) {
                     BlockPos cachedPos = cacheEntry.pos();
                     int distance = horizontalDistance(origin, cachedPos);
-                    if (distance <= RINGS[RINGS.length - 1]) {
+                    if (distance <= settings.maxRadius()) {
                         Holder<Structure> holder = cacheEntry.holder();
                         level.getServer().execute(() -> {
                             source.sendSuccess(() -> Component.literal("✅ Using cached locate result."), false);
@@ -63,10 +75,10 @@ public class AsyncLocateHandler {
                 HolderSet<Structure> holders = LocateCommandInvoker.invokeGetHolders(structure, registry)
                         .orElseThrow(() -> LocateCommandAccessor.getStructureInvalid().create(structure.asPrintable()));
 
-                int startIndex = findStartIndex(cacheEntry, origin);
+                int startIndex = findStartIndex(cacheEntry, origin, rings);
 
-                for (int i = startIndex; i < RINGS.length; i++) {
-                    int scanRadius = RINGS[i];
+                for (int i = startIndex; i < rings.length; i++) {
+                    int scanRadius = rings[i];
                     level.getServer().execute(() -> source.sendSuccess(() ->
                             Component.literal("🔍 Scanning up to " + scanRadius + " blocks..."), false));
                     LOGGER.info("[LocateFixer] Scanning for structure up to {} blocks", scanRadius);
@@ -87,28 +99,34 @@ public class AsyncLocateHandler {
                     }
                 }
 
-                level.getServer().execute(() -> {
-                    source.sendFailure(Component.literal("❌ Structure not found within 256,000 blocks."));
-                });
+                level.getServer().execute(() ->
+                        source.sendFailure(Component.literal("❌ Structure not found within " + settings.maxRadius() + " blocks.")));
 
             } catch (Exception e) {
-                level.getServer().execute(() -> {
-                    source.sendFailure(Component.literal("LocateFixer error (structure): " + e.getMessage()));
-                });
+                level.getServer().execute(() ->
+                        source.sendFailure(Component.literal("LocateFixer error (structure): " + e.getMessage())));
             }
         }, LOCATE_EXECUTOR);
     }
 
     public static void locateBiomeAsync(CommandSourceStack source, ResourceOrTagArgument.Result<Biome> biome, BlockPos origin, ServerLevel level) {
+        final LocateSettings settings = SETTINGS;
         CompletableFuture.runAsync(() -> {
             try {
-                LocateCacheKey cacheKey = LocateCacheKey.of(level, biome.asPrintable());
-                LocateCacheEntry<Biome> cacheEntry = getValidCacheEntry(BIOME_CACHE, cacheKey);
+                int[] rings = settings.rings();
+                if (rings.length == 0) {
+                    level.getServer().execute(() ->
+                            source.sendFailure(Component.literal("❌ No locate search radii configured.")));
+                    return;
+                }
+
+                LocateCacheKey cacheKey = LocateCacheKey.of(level, biome.asPrintable(), origin, settings.cacheGranularity());
+                LocateCacheEntry<Biome> cacheEntry = getValidCacheEntry(BIOME_CACHE, cacheKey, settings.cacheDurationMs());
 
                 if (cacheEntry != null) {
                     BlockPos cachedPos = cacheEntry.pos();
                     int distance = horizontalDistance(origin, cachedPos);
-                    if (distance <= RINGS[RINGS.length - 1]) {
+                    if (distance <= settings.maxRadius()) {
                         Holder<Biome> holder = cacheEntry.holder();
                         level.getServer().execute(() -> {
                             source.sendSuccess(() -> Component.literal("✅ Using cached locate result."), false);
@@ -118,15 +136,15 @@ public class AsyncLocateHandler {
                     }
                 }
 
-                int startIndex = findStartIndex(cacheEntry, origin);
+                int startIndex = findStartIndex(cacheEntry, origin, rings);
 
-                for (int i = startIndex; i < RINGS.length; i++) {
-                    int scanRadius = RINGS[i];
+                for (int i = startIndex; i < rings.length; i++) {
+                    int scanRadius = rings[i];
                     level.getServer().execute(() -> source.sendSuccess(() ->
                             Component.literal("🔍 Scanning up to " + scanRadius + " blocks..."), false));
                     LOGGER.info("[LocateFixer] Scanning for biome up to {} blocks", scanRadius);
 
-                    Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(biome, origin, scanRadius, computeSampleRadius(scanRadius), computeSampleStep(scanRadius));
+                    Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(biome, origin, scanRadius, computeSampleRadius(scanRadius, settings), computeSampleStep(scanRadius, settings));
                     if (result != null) {
                         BlockPos pos = result.getFirst();
                         Holder<Biome> holder = result.getSecond();
@@ -140,27 +158,27 @@ public class AsyncLocateHandler {
                     }
                 }
 
-                level.getServer().execute(() -> {
-                    source.sendFailure(Component.literal("❌ Biome not found within 256,000 blocks."));
-                });
+                level.getServer().execute(() ->
+                        source.sendFailure(Component.literal("❌ Biome not found within " + settings.maxRadius() + " blocks.")));
 
             } catch (Exception e) {
-                level.getServer().execute(() -> {
-                    source.sendFailure(Component.literal("LocateFixer error (biome): " + e.getMessage()));
-                });
+                level.getServer().execute(() ->
+                        source.sendFailure(Component.literal("LocateFixer error (biome): " + e.getMessage())));
             }
         }, LOCATE_EXECUTOR);
     }
 
     public static void locatePoiAsync(CommandSourceStack source, ResourceOrTagArgument.Result<PoiType> poiType, BlockPos origin, ServerLevel level) {
+        final LocateSettings settings = SETTINGS;
         CompletableFuture.runAsync(() -> {
             try {
-                LOGGER.info("[LocateFixer] Scanning for POI within {} blocks", POI_SEARCH_RADIUS);
+                int poiRadius = settings.poiSearchRadius();
+                LOGGER.info("[LocateFixer] Scanning for POI within {} blocks", poiRadius);
                 level.getServer().execute(() -> source.sendSuccess(() ->
-                        Component.literal("🔍 Scanning for POI up to " + POI_SEARCH_RADIUS + " blocks..."), false));
+                        Component.literal("🔍 Scanning for POI up to " + poiRadius + " blocks..."), false));
 
                 Optional<Pair<Holder<PoiType>, BlockPos>> result = level.getPoiManager()
-                        .findClosestWithType(poiType, origin, POI_SEARCH_RADIUS, PoiManager.Occupancy.ANY);
+                        .findClosestWithType(poiType, origin, poiRadius, PoiManager.Occupancy.ANY);
 
                 if (result.isPresent()) {
                     Pair<Holder<PoiType>, BlockPos> found = result.get();
@@ -172,57 +190,112 @@ public class AsyncLocateHandler {
                     );
                 } else {
                     level.getServer().execute(() ->
-                            source.sendFailure(Component.literal("❌ POI not found within " + POI_SEARCH_RADIUS + " blocks."))
+                            source.sendFailure(Component.literal("❌ POI not found within " + poiRadius + " blocks."))
                     );
                 }
 
             } catch (Exception e) {
-                level.getServer().execute(() -> {
-                    source.sendFailure(Component.literal("LocateFixer error (POI): " + e.getMessage()));
-                });
+                level.getServer().execute(() ->
+                        source.sendFailure(Component.literal("LocateFixer error (POI): " + e.getMessage())));
             }
         }, LOCATE_EXECUTOR);
     }
 
-    private static <T> LocateCacheEntry<T> getValidCacheEntry(ConcurrentMap<LocateCacheKey, LocateCacheEntry<T>> cache, LocateCacheKey key) {
+    private static <T> LocateCacheEntry<T> getValidCacheEntry(ConcurrentMap<LocateCacheKey, LocateCacheEntry<T>> cache, LocateCacheKey key, long cacheDurationMs) {
         LocateCacheEntry<T> entry = cache.get(key);
         if (entry == null) {
             return null;
         }
-        if (System.currentTimeMillis() - entry.timestamp() > CACHE_DURATION_MS) {
+        if (System.currentTimeMillis() - entry.timestamp() > cacheDurationMs) {
             cache.remove(key, entry);
             return null;
         }
         return entry;
     }
 
-    private static int findStartIndex(LocateCacheEntry<?> entry, BlockPos origin) {
+    private static int findStartIndex(LocateCacheEntry<?> entry, BlockPos origin, int[] rings) {
         if (entry == null) {
             return 0;
         }
         int distance = horizontalDistance(origin, entry.pos());
-        for (int i = 0; i < RINGS.length; i++) {
-            if (RINGS[i] >= distance) {
+        for (int i = 0; i < rings.length; i++) {
+            if (rings[i] >= distance) {
                 return i;
             }
         }
         return 0;
     }
 
-    private static int computeSampleRadius(int searchRadius) {
+    private static int computeSampleRadius(int searchRadius, LocateSettings settings) {
         int computed = Math.max(16, searchRadius / 256);
-        return Math.min(96, computed);
+        computed = Math.min(96, computed);
+        double scaled = computed * settings.biomeSampleRadiusMultiplier();
+        return (int) Math.max(16, Math.min(256, Math.round(scaled)));
     }
 
-    private static int computeSampleStep(int searchRadius) {
+    private static int computeSampleStep(int searchRadius, LocateSettings settings) {
         int computed = Math.max(24, searchRadius / 192);
-        return Math.min(128, computed);
+        computed = Math.min(128, computed);
+        double scaled = computed * settings.biomeSampleStepMultiplier();
+        return (int) Math.max(16, Math.min(256, Math.round(scaled)));
     }
 
     private static int horizontalDistance(BlockPos origin, BlockPos target) {
         int dx = target.getX() - origin.getX();
         int dz = target.getZ() - origin.getZ();
         return (int) Math.sqrt((double) dx * dx + (double) dz * dz);
+    }
+
+    public static void reloadConfig() {
+        LocateSettings newSettings = loadSettings();
+        synchronized (AsyncLocateHandler.class) {
+            int previousThreads = SETTINGS.threadCount();
+            SETTINGS = newSettings;
+            if (LOCATE_EXECUTOR == null) {
+                LOCATE_EXECUTOR = buildExecutor(newSettings.threadCount());
+            } else if (previousThreads != newSettings.threadCount()) {
+                ExecutorService oldExecutor = LOCATE_EXECUTOR;
+                LOCATE_EXECUTOR = buildExecutor(newSettings.threadCount());
+                oldExecutor.shutdown();
+            }
+        }
+        LOGGER.info("[LocateFixer] Reloaded locate settings: {} rings, {}ms cache, {} thread(s).",
+                newSettings.rings().length, newSettings.cacheDurationMs(), newSettings.threadCount());
+    }
+
+    private static LocateSettings loadSettings() {
+        List<? extends Integer> configuredRings = com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateRings.get();
+        List<Integer> ringList = new ArrayList<>();
+        if (configuredRings != null) {
+            for (Integer ring : configuredRings) {
+                if (ring != null && ring > 0) {
+                    ringList.add(ring);
+                }
+            }
+        }
+        if (ringList.isEmpty()) {
+            for (int ring : DEFAULT_RINGS) {
+                ringList.add(ring);
+            }
+        }
+        Collections.sort(ringList);
+        int[] rings = ringList.stream().mapToInt(Integer::intValue).toArray();
+
+        long cacheDurationMs = TimeUnit.MINUTES.toMillis(Math.max(1L, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheDurationMinutes.get()));
+        int cacheGranularity = Math.max(1, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheChunkGranularity.get());
+        int poiRadius = Math.max(16, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.poiSearchRadius.get());
+        int threadCount = Math.max(1, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateThreadCount.get());
+        double radiusMultiplier = Math.max(1.0D, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.biomeSampleRadiusMultiplier.get());
+        double stepMultiplier = Math.max(1.0D, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.biomeSampleStepMultiplier.get());
+
+        return new LocateSettings(rings, poiRadius, cacheDurationMs, cacheGranularity, threadCount, radiusMultiplier, stepMultiplier);
+    }
+
+    private static ExecutorService buildExecutor(int threadCount) {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(threadCount, threadCount, 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(), THREAD_FACTORY);
+        executor.allowCoreThreadTimeOut(false);
+        return executor;
     }
 
     private static ThreadFactory buildThreadFactory() {
@@ -235,13 +308,24 @@ public class AsyncLocateHandler {
         };
     }
 
-    private record LocateCacheKey(String dimension, String target) {
-        private static LocateCacheKey of(ServerLevel level, String target) {
-            return new LocateCacheKey(level.dimension().location().toString(), target);
+    private record LocateCacheKey(String dimension, String target, int coarseChunkX, int coarseChunkZ) {
+        private static LocateCacheKey of(ServerLevel level, String target, BlockPos origin, int granularity) {
+            int chunkX = origin.getX() >> 4;
+            int chunkZ = origin.getZ() >> 4;
+            int coarseX = Math.floorDiv(chunkX, granularity);
+            int coarseZ = Math.floorDiv(chunkZ, granularity);
+            return new LocateCacheKey(level.dimension().location().toString(), target, coarseX, coarseZ);
         }
     }
 
     private record LocateCacheEntry<T>(BlockPos pos, Holder<T> holder, long timestamp) {
+    }
+
+    private record LocateSettings(int[] rings, int poiSearchRadius, long cacheDurationMs, int cacheGranularity,
+                                  int threadCount, double biomeSampleRadiusMultiplier, double biomeSampleStepMultiplier) {
+        int maxRadius() {
+            return rings.length == 0 ? 0 : rings[rings.length - 1];
+        }
     }
 }
 

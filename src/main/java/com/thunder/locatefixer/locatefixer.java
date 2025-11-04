@@ -2,6 +2,8 @@ package com.thunder.locatefixer;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.thunder.locatefixer.command.LocateFixerSchematicCommand;
+import com.thunder.locatefixer.config.LocateFixerConfig;
+import com.thunder.locatefixer.util.AsyncLocateHandler;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
 import net.minecraft.commands.CommandSourceStack;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -14,6 +16,8 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 
@@ -31,6 +35,10 @@ public class locatefixer {
     public locatefixer(IEventBus modEventBus, ModContainer modContainer) {
         // Register the commonSetup method for modloading
         modEventBus.addListener(this::commonSetup);
+        modEventBus.addListener(this::onConfigLoad);
+        modEventBus.addListener(this::onConfigReload);
+
+        modContainer.registerConfig(ModConfig.Type.SERVER, LocateFixerConfig.SERVER_SPEC);
 
         NeoForge.EVENT_BUS.register(this);
     }
@@ -55,5 +63,17 @@ public class locatefixer {
     public void onRegisterCommands(RegisterCommandsEvent event) {
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
         LocateFixerSchematicCommand.register(dispatcher);
+    }
+
+    private void onConfigLoad(ModConfigEvent.Loading event) {
+        if (event.getConfig().getSpec() == LocateFixerConfig.SERVER_SPEC) {
+            AsyncLocateHandler.reloadConfig();
+        }
+    }
+
+    private void onConfigReload(ModConfigEvent.Reloading event) {
+        if (event.getConfig().getSpec() == LocateFixerConfig.SERVER_SPEC) {
+            AsyncLocateHandler.reloadConfig();
+        }
     }
 }
