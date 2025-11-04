@@ -36,7 +36,6 @@ public class locatefixer {
         modEventBus.addListener(this::commonSetup);
 
         NeoForge.EVENT_BUS.register(this);
-        NeoForge.EVENT_BUS.addListener(LocateTeleportHandler::onCommand);
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {
