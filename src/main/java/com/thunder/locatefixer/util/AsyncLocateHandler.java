@@ -12,9 +12,11 @@ import net.minecraft.core.HolderSet;
 import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
 import net.minecraft.world.entity.ai.village.poi.PoiType;
 import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.Structure;
 
 import java.util.ArrayList;
@@ -64,8 +66,9 @@ public class AsyncLocateHandler {
                     if (distance <= settings.maxRadius()) {
                         Holder<Structure> holder = cacheEntry.holder();
                         level.getServer().execute(() -> {
+                            BlockPos surfacePos = structureTeleportTarget(level, cachedPos);
                             source.sendSuccess(() -> Component.literal("✅ Using cached locate result."), false);
-                            LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, cachedPos, false);
+                            LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, surfacePos, true);
                         });
                         return;
                     }
@@ -92,9 +95,10 @@ public class AsyncLocateHandler {
 
                         STRUCTURE_CACHE.put(cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
 
-                        level.getServer().execute(() ->
-                                LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, pos, false)
-                        );
+                        level.getServer().execute(() -> {
+                            BlockPos surfacePos = structureTeleportTarget(level, pos);
+                            LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, surfacePos, true);
+                        });
                         return;
                     }
                 }
@@ -186,7 +190,7 @@ public class AsyncLocateHandler {
                     Holder<PoiType> holder = found.getFirst();
 
                     level.getServer().execute(() ->
-                            LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, false)
+                            LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, true)
                     );
                 } else {
                     level.getServer().execute(() ->
@@ -238,6 +242,22 @@ public class AsyncLocateHandler {
         computed = Math.min(128, computed);
         double scaled = computed * settings.biomeSampleStepMultiplier();
         return (int) Math.max(16, Math.min(256, Math.round(scaled)));
+    }
+
+    private static BlockPos structureTeleportTarget(ServerLevel level, BlockPos structurePos) {
+        int x = structurePos.getX();
+        int z = structurePos.getZ();
+        int surfaceY;
+        if (level.hasChunkAt(structurePos)) {
+            surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+        } else {
+            surfaceY = structurePos.getY();
+        }
+        if (surfaceY <= level.getMinBuildHeight()) {
+            surfaceY = structurePos.getY();
+        }
+        int clampedY = Mth.clamp(surfaceY, level.getMinBuildHeight(), level.getMaxBuildHeight() - 1);
+        return new BlockPos(x, clampedY, z);
     }
 
     private static int horizontalDistance(BlockPos origin, BlockPos target) {
