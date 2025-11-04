@@ -26,7 +26,7 @@ public final class LocateTeleportHandler {
     }
 
     public static void startTeleportWithPreload(ServerPlayer player, ServerLevel level, BlockPos targetPos, Runnable teleportAction) {
-        List<ChunkPos> forcedChunks = forceChunks(level, targetPos, PRELOAD_RADIUS_CHUNKS);
+        List<ChunkPos> forcedChunks = forceChunks(level, targetPos);
         player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
 
         CompletableFuture.runAsync(() -> runCountdown(level, player, forcedChunks, teleportAction));
@@ -68,11 +68,11 @@ public final class LocateTeleportHandler {
         }
     }
 
-    private static List<ChunkPos> forceChunks(ServerLevel level, BlockPos center, int radius) {
+    private static List<ChunkPos> forceChunks(ServerLevel level, BlockPos center) {
         List<ChunkPos> forced = new ArrayList<>();
         ChunkPos centerChunk = new ChunkPos(center);
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dz = -radius; dz <= radius; dz++) {
+        for (int dx = -LocateTeleportHandler.PRELOAD_RADIUS_CHUNKS; dx <= LocateTeleportHandler.PRELOAD_RADIUS_CHUNKS; dx++) {
+            for (int dz = -LocateTeleportHandler.PRELOAD_RADIUS_CHUNKS; dz <= LocateTeleportHandler.PRELOAD_RADIUS_CHUNKS; dz++) {
                 ChunkPos chunkPos = new ChunkPos(centerChunk.x + dx, centerChunk.z + dz);
                 level.setChunkForced(chunkPos.x, chunkPos.z, true);
                 forced.add(chunkPos);

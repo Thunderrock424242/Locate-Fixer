@@ -266,11 +266,9 @@ public class AsyncLocateHandler {
     private static LocateSettings loadSettings() {
         List<? extends Integer> configuredRings = com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateRings.get();
         List<Integer> ringList = new ArrayList<>();
-        if (configuredRings != null) {
-            for (Integer ring : configuredRings) {
-                if (ring != null && ring > 0) {
-                    ringList.add(ring);
-                }
+        for (Integer ring : configuredRings) {
+            if (ring != null && ring > 0) {
+                ringList.add(ring);
             }
         }
         if (ringList.isEmpty()) {

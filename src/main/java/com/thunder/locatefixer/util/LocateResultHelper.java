@@ -26,8 +26,9 @@ public class LocateResultHelper {
                 .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.translatable("chat.coordinates.tooltip")))
         );
 
+        target.getRegisteredName();
         Component message = Component.translatable(label,
-                target.getRegisteredName() != null ? target.getRegisteredName() : "unknown",
+                target.getRegisteredName(),
                 coords,
                 distance
         );
