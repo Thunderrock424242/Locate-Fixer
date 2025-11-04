@@ -8,6 +8,7 @@ import net.minecraft.commands.arguments.coordinates.Coordinates;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.commands.TeleportCommand;
+import net.minecraft.server.commands.TeleportCommand.LookAt;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
@@ -25,9 +26,6 @@ import java.util.EnumSet;
 import java.util.Locale;
 
 import javax.annotation.Nullable;
-import java.util.Collection;
-import java.util.EnumSet;
-import java.util.Locale;
 import net.neoforged.neoforge.event.EventHooks;
 
 @Mixin(TeleportCommand.class)
@@ -42,7 +40,7 @@ public abstract class TeleportCommandMixin {
                                                   ServerLevel level,
                                                   Coordinates position,
                                                   Coordinates rotation,
-                                                  Object facing,
+                                                  @Nullable LookAt facing,
                                                   CallbackInfoReturnable<Integer> cir) throws CommandSyntaxException {
         if (targets.size() != 1 || rotation != null || facing != null) {
             return;
