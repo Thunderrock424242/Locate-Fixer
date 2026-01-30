@@ -34,6 +34,7 @@ public final class LocateTeleportHandler {
     public static void startTeleportWithPreload(ServerPlayer player, ServerLevel level, BlockPos targetPos, Runnable teleportAction) {
         List<ChunkPos> forcedChunks = forceChunks(level, targetPos);
         player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
+        sendActionBar(player, Component.literal("📦 Preloading " + forcedChunks.size() + " chunks..."));
 
         scheduleCountdown(level, player, forcedChunks, teleportAction);
     }
@@ -111,11 +112,13 @@ public final class LocateTeleportHandler {
             level.getServer().execute(() -> {
                 try {
                     if (!player.isRemoved()) {
+                        sendActionBar(player, Component.literal("✅ Destination ready."));
                         teleportAction.run();
                     }
                 } catch (Exception e) {
                     if (!player.isRemoved()) {
                         player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
+                        sendActionBar(player, Component.literal("❌ Teleport failed."));
                     }
                 } finally {
                     releaseChunks(level, forcedChunks);
@@ -139,5 +142,9 @@ public final class LocateTeleportHandler {
                 future.cancel(false);
             }
         }
+    }
+
+    private static void sendActionBar(ServerPlayer player, Component message) {
+        player.displayClientMessage(message, true);
     }
 }
