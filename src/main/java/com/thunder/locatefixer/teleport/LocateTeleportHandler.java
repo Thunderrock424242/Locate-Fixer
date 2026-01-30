@@ -10,12 +10,18 @@ import net.minecraft.world.level.Level;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class LocateTeleportHandler {
 
     private static final int COUNTDOWN_SECONDS = 5;
     private static final int PRELOAD_RADIUS_CHUNKS = 2;
+    private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
 
     private LocateTeleportHandler() {
     }
@@ -29,43 +35,13 @@ public final class LocateTeleportHandler {
         List<ChunkPos> forcedChunks = forceChunks(level, targetPos);
         player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
 
-        CompletableFuture.runAsync(() -> runCountdown(level, player, forcedChunks, teleportAction));
+        scheduleCountdown(level, player, forcedChunks, teleportAction);
     }
 
-    private static void runCountdown(ServerLevel level, ServerPlayer player, List<ChunkPos> forcedChunks, Runnable teleportAction) {
-        try {
-            for (int secondsLeft = COUNTDOWN_SECONDS; secondsLeft > 0; secondsLeft--) {
-                int displaySeconds = secondsLeft;
-                level.getServer().execute(() -> {
-                    if (!player.isRemoved()) {
-                        player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds + "..."));
-                    }
-                });
-                Thread.sleep(1000L);
-            }
-
-            level.getServer().execute(() -> {
-                try {
-                    if (!player.isRemoved()) {
-                        teleportAction.run();
-                    }
-                } catch (Exception e) {
-                    if (!player.isRemoved()) {
-                        player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
-                    }
-                } finally {
-                    releaseChunks(level, forcedChunks);
-                }
-            });
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            level.getServer().execute(() -> {
-                if (!player.isRemoved()) {
-                    player.sendSystemMessage(Component.literal("Teleport cancelled."));
-                }
-                releaseChunks(level, forcedChunks);
-            });
-        }
+    private static void scheduleCountdown(ServerLevel level, ServerPlayer player, List<ChunkPos> forcedChunks, Runnable teleportAction) {
+        CountdownTask task = new CountdownTask(level, player, forcedChunks, teleportAction);
+        ScheduledFuture<?> future = PRELOAD_EXECUTOR.scheduleAtFixedRate(task, 0L, 1L, TimeUnit.SECONDS);
+        task.attachFuture(future);
     }
 
     private static List<ChunkPos> forceChunks(ServerLevel level, BlockPos center) {
@@ -84,6 +60,84 @@ public final class LocateTeleportHandler {
     private static void releaseChunks(ServerLevel level, List<ChunkPos> forcedChunks) {
         for (ChunkPos chunkPos : forcedChunks) {
             level.setChunkForced(chunkPos.x, chunkPos.z, false);
+        }
+    }
+
+    private static ThreadFactory buildThreadFactory() {
+        AtomicInteger counter = new AtomicInteger();
+        return runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("LocateFixer-Preload-" + counter.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+    }
+
+    private static final class CountdownTask implements Runnable {
+        private final ServerLevel level;
+        private final ServerPlayer player;
+        private final List<ChunkPos> forcedChunks;
+        private final Runnable teleportAction;
+        private int secondsLeft;
+        private ScheduledFuture<?> future;
+
+        private CountdownTask(ServerLevel level, ServerPlayer player, List<ChunkPos> forcedChunks, Runnable teleportAction) {
+            this.level = level;
+            this.player = player;
+            this.forcedChunks = forcedChunks;
+            this.teleportAction = teleportAction;
+            this.secondsLeft = COUNTDOWN_SECONDS;
+        }
+
+        private void attachFuture(ScheduledFuture<?> future) {
+            this.future = future;
+        }
+
+        @Override
+        public void run() {
+            if (player.isRemoved()) {
+                cancelAndRelease("Teleport cancelled.");
+                return;
+            }
+
+            if (secondsLeft > 0) {
+                int displaySeconds = secondsLeft;
+                secondsLeft--;
+                level.getServer().execute(() ->
+                        player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds + "...")));
+                return;
+            }
+
+            level.getServer().execute(() -> {
+                try {
+                    if (!player.isRemoved()) {
+                        teleportAction.run();
+                    }
+                } catch (Exception e) {
+                    if (!player.isRemoved()) {
+                        player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
+                    }
+                } finally {
+                    releaseChunks(level, forcedChunks);
+                }
+            });
+            cancelFuture();
+        }
+
+        private void cancelAndRelease(String message) {
+            level.getServer().execute(() -> {
+                if (!player.isRemoved()) {
+                    player.sendSystemMessage(Component.literal(message));
+                }
+                releaseChunks(level, forcedChunks);
+            });
+            cancelFuture();
+        }
+
+        private void cancelFuture() {
+            if (future != null && !future.isCancelled()) {
+                future.cancel(false);
+            }
         }
     }
 }
