@@ -10,6 +10,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
 import net.minecraft.core.Registry;
+import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
@@ -248,7 +249,7 @@ public class AsyncLocateHandler {
         int x = structurePos.getX();
         int z = structurePos.getZ();
         int surfaceY;
-        if (level.hasChunkAt(structurePos)) {
+        if (level.hasChunk(SectionPos.blockToSectionCoord(x), SectionPos.blockToSectionCoord(z))) {
             surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
         } else {
             surfaceY = structurePos.getY();
@@ -346,4 +347,3 @@ public class AsyncLocateHandler {
         }
     }
 }
-
