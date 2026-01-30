@@ -3,7 +3,14 @@ package com.thunder.locatefixer.api;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Public API for LocateFixer to support mod-added structures
@@ -19,7 +26,11 @@ public class StructureLocatorRegistry {
         Optional<BlockPos> find(ServerLevel level, BlockPos origin, int maxRadius);
     }
 
-    private static final Map<String, CustomStructureLocator> LOCATORS = new LinkedHashMap<>();
+    private static final Map<String, CustomStructureLocator> LOCATORS = new ConcurrentHashMap<>();
+
+    private static String normalizeId(String id) {
+        return Objects.requireNonNull(id, "id").toLowerCase(Locale.ROOT);
+    }
 
     /**
      * Registers a custom structure locator.
@@ -27,14 +38,14 @@ public class StructureLocatorRegistry {
      * @param locator Logic to locate the structure
      */
     public static void register(String id, CustomStructureLocator locator) {
-        LOCATORS.put(id.toLowerCase(Locale.ROOT), locator);
+        LOCATORS.put(normalizeId(id), locator);
     }
 
     /**
      * Tries to locate a registered structure.
      */
     public static Optional<BlockPos> locate(String id, ServerLevel level, BlockPos origin, int maxRadius) {
-        CustomStructureLocator locator = LOCATORS.get(id.toLowerCase(Locale.ROOT));
+        CustomStructureLocator locator = LOCATORS.get(normalizeId(id));
         if (locator != null) {
             return locator.find(level, origin, maxRadius);
         }
@@ -42,10 +53,10 @@ public class StructureLocatorRegistry {
     }
 
     public static Set<String> getRegisteredStructureIds() {
-        return Collections.unmodifiableSet(LOCATORS.keySet());
+        return Collections.unmodifiableSet(new TreeSet<>(LOCATORS.keySet()));
     }
 
     public static boolean isRegistered(String id) {
-        return LOCATORS.containsKey(id.toLowerCase(Locale.ROOT));
+        return LOCATORS.containsKey(normalizeId(id));
     }
 }

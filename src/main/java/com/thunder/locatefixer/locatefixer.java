@@ -3,8 +3,9 @@ package com.thunder.locatefixer;
 import com.mojang.brigadier.CommandDispatcher;
 import com.thunder.locatefixer.command.LocateFixerSchematicCommand;
 import com.thunder.locatefixer.config.LocateFixerConfig;
-import com.thunder.locatefixer.util.AsyncLocateHandler;
+import com.thunder.locatefixer.integration.WorldEditHook;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
+import com.thunder.locatefixer.util.AsyncLocateHandler;
 import net.minecraft.commands.CommandSourceStack;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.slf4j.Logger;
@@ -18,6 +19,7 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.config.ModConfigEvent;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 
@@ -45,6 +47,10 @@ public class locatefixer {
 
     private void commonSetup(FMLCommonSetupEvent event) {
         SchematicLocatorRegistry.scanWorldEditSchematicsFolder();
+        if (ModList.get().isLoaded("worldedit")) {
+            WorldEditHook.enable();
+            NeoForge.EVENT_BUS.register(new WorldEditHook());
+        }
 
     }
 

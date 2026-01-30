@@ -2,6 +2,7 @@ package com.thunder.locatefixer.integration;
 
 import com.sk89q.worldedit.event.extent.EditSessionEvent;
 import com.sk89q.worldedit.extension.platform.Actor;
+import com.thunder.locatefixer.locatefixer;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
 import net.minecraft.core.BlockPos;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -10,7 +11,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 public class WorldEditHook {
 
     public static void enable() {
-        System.out.println("[LocateFixer] WorldEdit detected. Hooking into schematic tracker.");
+        locatefixer.LOGGER.info("[LocateFixer] WorldEdit detected. Hooking into schematic tracker.");
         // This assumes you’ve registered this listener somewhere using MinecraftForge.EVENT_BUS
     }
 
@@ -23,8 +24,8 @@ public class WorldEditHook {
         BlockPos position = RecentSchematicTracker.getRecentPosition(actor.getName());
 
         if (schematicId != null && position != null) {
-            SchematicLocatorRegistry.register(schematicId, (SchematicLocatorRegistry.CustomStructureLocator) position);
-            System.out.println("[LocateFixer] Registered schematic '" + schematicId + "' at " + position);
+            SchematicLocatorRegistry.registerSchematicPosition(schematicId, position);
+            locatefixer.LOGGER.info("[LocateFixer] Registered schematic '{}' at {}", schematicId, position);
             RecentSchematicTracker.clear(actor.getName());
         }
     }
