@@ -28,6 +28,7 @@ public final class LocateTeleportHandler {
     public static void startTeleportWithPreload(ServerPlayer player, ServerLevel level, BlockPos targetPos, Runnable teleportAction) {
         List<ChunkPos> forcedChunks = forceChunks(level, targetPos);
         player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
+        sendActionBar(player, Component.literal("📦 Preloading " + forcedChunks.size() + " chunks..."));
 
         CompletableFuture.runAsync(() -> runCountdown(level, player, forcedChunks, teleportAction));
     }
@@ -39,6 +40,7 @@ public final class LocateTeleportHandler {
                 level.getServer().execute(() -> {
                     if (!player.isRemoved()) {
                         player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds + "..."));
+                        sendActionBar(player, Component.literal("📦 Preloading chunks... " + displaySeconds + "s"));
                     }
                 });
                 Thread.sleep(1000L);
@@ -47,11 +49,13 @@ public final class LocateTeleportHandler {
             level.getServer().execute(() -> {
                 try {
                     if (!player.isRemoved()) {
+                        sendActionBar(player, Component.literal("✅ Destination ready."));
                         teleportAction.run();
                     }
                 } catch (Exception e) {
                     if (!player.isRemoved()) {
                         player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
+                        sendActionBar(player, Component.literal("❌ Teleport failed."));
                     }
                 } finally {
                     releaseChunks(level, forcedChunks);
@@ -62,6 +66,7 @@ public final class LocateTeleportHandler {
             level.getServer().execute(() -> {
                 if (!player.isRemoved()) {
                     player.sendSystemMessage(Component.literal("Teleport cancelled."));
+                    sendActionBar(player, Component.literal("⚠️ Teleport cancelled."));
                 }
                 releaseChunks(level, forcedChunks);
             });
@@ -85,5 +90,9 @@ public final class LocateTeleportHandler {
         for (ChunkPos chunkPos : forcedChunks) {
             level.setChunkForced(chunkPos.x, chunkPos.z, false);
         }
+    }
+
+    private static void sendActionBar(ServerPlayer player, Component message) {
+        player.displayClientMessage(message, true);
     }
 }
