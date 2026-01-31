@@ -5,6 +5,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BiomeTags;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 
@@ -16,11 +17,17 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 public final class LocateTeleportHandler {
 
     private static final int COUNTDOWN_SECONDS = 5;
     private static final int PRELOAD_RADIUS_CHUNKS = 2;
+    private static final int SAFE_AREA_RADIUS = 1;
+    private static final int SAFE_AREA_HEIGHT = 2;
+    private static final int SAFE_SEARCH_UP = 24;
+    private static final int SAFE_SEARCH_DOWN = 12;
+    private static final int SAFE_SEARCH_HORIZONTAL = 4;
     private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
 
     private LocateTeleportHandler() {
@@ -31,16 +38,97 @@ public final class LocateTeleportHandler {
                 + target.getX() + " " + target.getY() + " " + target.getZ();
     }
 
-    public static void startTeleportWithPreload(ServerPlayer player, ServerLevel level, BlockPos targetPos, Runnable teleportAction) {
+    public static void startTeleportWithPreload(ServerPlayer player,
+                                                ServerLevel level,
+                                                BlockPos targetPos,
+                                                Consumer<BlockPos> teleportAction) {
         List<ChunkPos> forcedChunks = forceChunks(level, targetPos);
         player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
         sendActionBar(player, Component.literal("📦 Preloading " + forcedChunks.size() + " chunks..."));
 
-        scheduleCountdown(level, player, forcedChunks, teleportAction);
+        BlockPos safePos = findSafeTeleportPosition(level, targetPos);
+        scheduleCountdown(level, player, forcedChunks, safePos, teleportAction);
     }
 
-    private static void scheduleCountdown(ServerLevel level, ServerPlayer player, List<ChunkPos> forcedChunks, Runnable teleportAction) {
-        CountdownTask task = new CountdownTask(level, player, forcedChunks, teleportAction);
+    public static BlockPos findSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
+        if (level.getBiome(targetPos).is(BiomeTags.IS_CAVE)) {
+            return findCaveSafePosition(level, targetPos);
+        }
+        return findSurfaceSafePosition(level, targetPos);
+    }
+
+    private static BlockPos findSurfaceSafePosition(ServerLevel level, BlockPos targetPos) {
+        if (isSafePosition(level, targetPos)) {
+            return targetPos;
+        }
+
+        for (int offset = 1; offset <= SAFE_SEARCH_UP; offset++) {
+            BlockPos up = targetPos.above(offset);
+            if (isSafePosition(level, up)) {
+                return up;
+            }
+        }
+
+        return targetPos;
+    }
+
+    private static BlockPos findCaveSafePosition(ServerLevel level, BlockPos targetPos) {
+        if (isSafePosition(level, targetPos)) {
+            return targetPos;
+        }
+
+        int maxRange = Math.max(SAFE_SEARCH_UP, SAFE_SEARCH_DOWN);
+        for (int vertical = 0; vertical <= maxRange; vertical++) {
+            if (vertical == 0) {
+                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, 0);
+                if (match != null) {
+                    return match;
+                }
+                continue;
+            }
+
+            if (vertical <= SAFE_SEARCH_UP) {
+                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, vertical);
+                if (match != null) {
+                    return match;
+                }
+            }
+
+            if (vertical <= SAFE_SEARCH_DOWN) {
+                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, -vertical);
+                if (match != null) {
+                    return match;
+                }
+            }
+        }
+
+        return targetPos;
+    }
+
+    private static BlockPos findCaveSafePositionAtYOffset(ServerLevel level, BlockPos targetPos, int yOffset) {
+        BlockPos base = targetPos.offset(0, yOffset, 0);
+        for (int radius = 0; radius <= SAFE_SEARCH_HORIZONTAL; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) {
+                        continue;
+                    }
+                    BlockPos candidate = base.offset(dx, 0, dz);
+                    if (isSafePosition(level, candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static void scheduleCountdown(ServerLevel level,
+                                          ServerPlayer player,
+                                          List<ChunkPos> forcedChunks,
+                                          BlockPos safePos,
+                                          Consumer<BlockPos> teleportAction) {
+        CountdownTask task = new CountdownTask(level, player, forcedChunks, safePos, teleportAction);
         ScheduledFuture<?> future = PRELOAD_EXECUTOR.scheduleAtFixedRate(task, 0L, 1L, TimeUnit.SECONDS);
         task.attachFuture(future);
     }
@@ -74,18 +162,45 @@ public final class LocateTeleportHandler {
         };
     }
 
+    private static boolean isSafePosition(ServerLevel level, BlockPos pos) {
+        int minY = level.getMinBuildHeight();
+        int maxY = level.getMaxBuildHeight() - SAFE_AREA_HEIGHT;
+        if (pos.getY() < minY || pos.getY() > maxY) {
+            return false;
+        }
+
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        for (int dx = -SAFE_AREA_RADIUS; dx <= SAFE_AREA_RADIUS; dx++) {
+            for (int dz = -SAFE_AREA_RADIUS; dz <= SAFE_AREA_RADIUS; dz++) {
+                for (int dy = 0; dy < SAFE_AREA_HEIGHT; dy++) {
+                    cursor.set(pos.getX() + dx, pos.getY() + dy, pos.getZ() + dz);
+                    if (!level.isEmptyBlock(cursor)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
     private static final class CountdownTask implements Runnable {
         private final ServerLevel level;
         private final ServerPlayer player;
         private final List<ChunkPos> forcedChunks;
-        private final Runnable teleportAction;
+        private final BlockPos safePos;
+        private final Consumer<BlockPos> teleportAction;
         private int secondsLeft;
         private ScheduledFuture<?> future;
 
-        private CountdownTask(ServerLevel level, ServerPlayer player, List<ChunkPos> forcedChunks, Runnable teleportAction) {
+        private CountdownTask(ServerLevel level,
+                              ServerPlayer player,
+                              List<ChunkPos> forcedChunks,
+                              BlockPos safePos,
+                              Consumer<BlockPos> teleportAction) {
             this.level = level;
             this.player = player;
             this.forcedChunks = forcedChunks;
+            this.safePos = safePos;
             this.teleportAction = teleportAction;
             this.secondsLeft = COUNTDOWN_SECONDS;
         }
@@ -113,7 +228,7 @@ public final class LocateTeleportHandler {
                 try {
                     if (!player.isRemoved()) {
                         sendActionBar(player, Component.literal("✅ Destination ready."));
-                        teleportAction.run();
+                        teleportAction.accept(safePos);
                     }
                 } catch (Exception e) {
                     if (!player.isRemoved()) {
