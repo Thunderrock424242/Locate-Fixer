@@ -3,6 +3,7 @@ package com.thunder.locatefixer.config;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 public final class LocateFixerConfig {
     public static final ModConfigSpec SERVER_SPEC;
@@ -31,6 +32,7 @@ public final class LocateFixerConfig {
             locateRings = builder
                     .comment("Ordered list of radii (in blocks) used when scanning for structures/biomes.")
                     .defineList("locateRings", List.of(6400, 16000, 32000, 64000, 128000, 256000),
+                            defaultLocateRingSupplier(),
                             o -> o instanceof Integer && (Integer) o > 0);
             locateThreadCount = builder
                     .comment("Number of asynchronous locate worker threads. Use 1 to force sequential processing.")
@@ -54,6 +56,9 @@ public final class LocateFixerConfig {
                     .comment("Radius (in blocks) used when searching for points of interest.")
                     .defineInRange("poiSearchRadius", 256, 16, 4096);
             builder.pop();
+        }
+        private static Supplier<Integer> defaultLocateRingSupplier() {
+            return () -> 6400;
         }
     }
 }
