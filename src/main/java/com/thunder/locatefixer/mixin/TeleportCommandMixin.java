@@ -67,17 +67,23 @@ public abstract class TeleportCommandMixin {
         double x = targetVec.x;
         double y = targetVec.y;
         double z = targetVec.z;
-        BlockPos targetPos = BlockPos.containing(targetVec);
 
-        LocateTeleportHandler.startTeleportWithPreload(player, level, targetPos, () -> {
+        var event = EventHooks.onEntityTeleportCommand(player, x, y, z);
+        if (event.isCanceled()) {
+            return;
+        }
+
+        BlockPos targetPos = BlockPos.containing(event.getTargetX(), event.getTargetY(), event.getTargetZ());
+
+        LocateTeleportHandler.startTeleportWithPreload(player, level, targetPos, safePos -> {
             try {
-                locatefixer$performTeleport(player, level, x, y, z);
+                locatefixer$performTeleport(player, level, safePos);
                 source.sendSuccess(() -> Component.translatable(
                         "commands.teleport.success.location.single",
                         player.getDisplayName(),
-                        locate_Fixer$formatDouble(x),
-                        locate_Fixer$formatDouble(y),
-                        locate_Fixer$formatDouble(z)
+                        locate_Fixer$formatDouble(safePos.getX() + 0.5D),
+                        locate_Fixer$formatDouble(safePos.getY()),
+                        locate_Fixer$formatDouble(safePos.getZ() + 0.5D)
                 ), true);
                 player.sendSystemMessage(Component.literal("✅ Teleport complete."));
             } catch (CommandSyntaxException e) {
@@ -97,22 +103,14 @@ public abstract class TeleportCommandMixin {
     @Unique
     private static void locatefixer$performTeleport(ServerPlayer player,
                                                   ServerLevel level,
-                                                  double x,
-                                                  double y,
-                                                  double z) throws CommandSyntaxException {
-        var event = EventHooks.onEntityTeleportCommand(player, x, y, z);
-        if (event.isCanceled()) {
-            return;
-        }
-
-        double targetX = event.getTargetX();
-        double targetY = event.getTargetY();
-        double targetZ = event.getTargetZ();
-
-        BlockPos blockPos = BlockPos.containing(targetX, targetY, targetZ);
-        if (!Level.isInSpawnableBounds(blockPos)) {
+                                                  BlockPos safePos) throws CommandSyntaxException {
+        if (!Level.isInSpawnableBounds(safePos)) {
             throw LOCATEFIX_INVALID_POSITION.create();
         }
+
+        double targetX = safePos.getX() + 0.5D;
+        double targetY = safePos.getY();
+        double targetZ = safePos.getZ() + 0.5D;
 
         EnumSet<RelativeMovement> relative = EnumSet.of(RelativeMovement.X_ROT, RelativeMovement.Y_ROT);
         float yaw = Mth.wrapDegrees(player.getYRot());
