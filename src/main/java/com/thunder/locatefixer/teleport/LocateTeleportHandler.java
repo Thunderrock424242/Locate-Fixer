@@ -32,7 +32,9 @@ public final class LocateTeleportHandler {
     private static final int SAFE_SEARCH_DOWN = 12;
     private static final int SAFE_SEARCH_HORIZONTAL = 4;
     private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
-    private static final TagKey<Biome> CAVE_BIOME_TAG = TagKey.create(Registries.BIOME, new ResourceLocation("minecraft", "is_cave"));
+    private static final TagKey<Biome> CAVE_BIOME_TAG = TagKey.create(
+            Registries.BIOME,
+            ResourceLocation.fromNamespaceAndPath("minecraft", "is_cave"));
 
     private LocateTeleportHandler() {
     }
