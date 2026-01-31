@@ -2,13 +2,12 @@ package com.thunder.locatefixer.teleport;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.biome.Biome;
+import net.neoforged.neoforge.common.Tags;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 
@@ -32,9 +31,7 @@ public final class LocateTeleportHandler {
     private static final int SAFE_SEARCH_DOWN = 12;
     private static final int SAFE_SEARCH_HORIZONTAL = 4;
     private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
-    private static final TagKey<Biome> CAVE_BIOME_TAG = TagKey.create(
-            Registries.BIOME,
-            ResourceLocation.fromNamespaceAndPath("minecraft", "is_cave"));
+    private static final TagKey<Biome> CAVE_BIOME_TAG = Tags.Biomes.IS_CAVE;
 
     private LocateTeleportHandler() {
     }
