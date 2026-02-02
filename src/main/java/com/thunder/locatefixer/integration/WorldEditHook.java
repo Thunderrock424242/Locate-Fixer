@@ -1,21 +1,26 @@
 package com.thunder.locatefixer.integration;
 
+import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.event.extent.EditSessionEvent;
+import com.sk89q.worldedit.event.Subscribe;
 import com.sk89q.worldedit.extension.platform.Actor;
 import com.thunder.locatefixer.locatefixer;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
 import net.minecraft.core.BlockPos;
-import net.neoforged.bus.api.SubscribeEvent;
 
 
 public class WorldEditHook {
+    private static boolean registered = false;
 
     public static void enable() {
         locatefixer.LOGGER.info("[LocateFixer] WorldEdit detected. Hooking into schematic tracker.");
-        // This assumes you’ve registered this listener somewhere using MinecraftForge.EVENT_BUS
+        if (!registered) {
+            WorldEdit.getInstance().getEventBus().register(new WorldEditHook());
+            registered = true;
+        }
     }
 
-    @SubscribeEvent
+    @Subscribe
     public void onSchematicPasted(EditSessionEvent event) {
         Actor actor = event.getActor();
         if (actor == null || actor.getName() == null) return;
