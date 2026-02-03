@@ -49,7 +49,6 @@ public class locatefixer {
         SchematicLocatorRegistry.scanWorldEditSchematicsFolder();
         if (ModList.get().isLoaded("worldedit")) {
             WorldEditHook.enable();
-            NeoForge.EVENT_BUS.register(new WorldEditHook());
         }
 
     }
