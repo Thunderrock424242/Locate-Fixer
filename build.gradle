@@ -1,7 +1,7 @@
 plugins {
     id 'java-library'
     id 'maven-publish'
-    id 'net.neoforged.moddev' version '2.0.124'
+    id 'net.neoforged.moddev' version '2.0.140'
     id 'idea'
 }
 
@@ -14,7 +14,7 @@ tasks.named('wrapper', Wrapper).configure {
     distributionType = Wrapper.DistributionType.BIN
 }
 
-version = "2.1.0"
+version = "2.1.2"
 group = mod_group_id
 
 repositories {
@@ -30,7 +30,7 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
 neoForge {
     // Specify the version of NeoForge to use.
-    version = "21.1.218"
+    version = "21.1.219"
 
     parchment {
         mappingsVersion = project.parchment_mappings_version
@@ -146,7 +146,7 @@ dependencies {
 // A missing property will result in an error. Properties are expanded using ${} Groovy notation.
 var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
     var replaceProperties = [
-            minecraft_version      : minecraft_version,
+            minecraft_version      : "1.21.1",
             minecraft_version_range: minecraft_version_range,
             neo_version            : neo_version,
             neo_version_range      : neo_version_range,
@@ -154,7 +154,7 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
             mod_id                 : "locatefixer",
             mod_name               : "Locate Fixer",
             mod_license            : mod_license,
-            mod_version            : "2.1.0",
+            mod_version            : "2.1.2",
             mod_authors            : "thunderrock424242",
             mod_description        : mod_description
     ]

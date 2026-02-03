@@ -2,8 +2,8 @@ package com.thunder.locatefixer.integration;
 
 import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.event.extent.EditSessionEvent;
-import com.sk89q.worldedit.event.Subscribe;
 import com.sk89q.worldedit.extension.platform.Actor;
+import com.sk89q.worldedit.util.eventbus.Subscribe;
 import com.thunder.locatefixer.locatefixer;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
 import net.minecraft.core.BlockPos;
