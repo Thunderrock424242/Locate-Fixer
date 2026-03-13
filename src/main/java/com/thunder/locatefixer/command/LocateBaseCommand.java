@@ -39,7 +39,7 @@ public class LocateBaseCommand {
                                 )
                         )
                 )
-                .then(Commands.literal("player")
+                .then(Commands.literal("playerhome")
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.argument("player", GameProfileArgument.gameProfile())
                                 .executes(ctx -> locateDefaultPlayerBase(ctx.getSource(), GameProfileArgument.getGameProfiles(ctx, "player")))
@@ -48,11 +48,6 @@ public class LocateBaseCommand {
                                         .executes(ctx -> locatePlayerBase(ctx.getSource(),
                                                 GameProfileArgument.getGameProfiles(ctx, "player"),
                                                 StringArgumentType.getString(ctx, "name")))
-                                )
-                        )
-                        .then(Commands.literal("home")
-                                .then(Commands.argument("player", EntityArgument.player())
-                                        .executes(ctx -> listPlayerBases(ctx.getSource(), EntityArgument.getPlayer(ctx, "player")))
                                 )
                         )
                 ));
@@ -111,19 +106,6 @@ public class LocateBaseCommand {
 
         String defaultBase = baseNames.contains("base") ? "base" : baseNames.iterator().next();
         return locatePlayerBase(source, profile.getId(), profile.getName(), defaultBase);
-    }
-
-    private static int listPlayerBases(CommandSourceStack source, ServerPlayer targetPlayer) {
-        PlayerBaseSavedData data = PlayerBaseSavedData.get(source.getLevel());
-        Set<String> bases = data.getBaseNames(targetPlayer.getUUID());
-
-        if (bases.isEmpty()) {
-            source.sendFailure(Component.literal(targetPlayer.getGameProfile().getName() + " has no saved bases."));
-            return 0;
-        }
-
-        source.sendSuccess(() -> Component.literal(targetPlayer.getGameProfile().getName() + " bases: " + String.join(", ", bases)), false);
-        return bases.size();
     }
 
     private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> suggestPlayerBases(

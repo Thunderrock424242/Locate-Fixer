@@ -28,6 +28,7 @@ Changes can be reloaded on the fly with standard NeoForge config reloads—no re
 3. For multiple nearest matches, use `/locate nearest structure <count>` or `/locate nearest biome <count>`.
 4. Use `/tp` immediately after; the mod preloads the target area and teleports you safely once it’s chunk-loaded.
 5. Drop `.schem` files into `config/worldedit/schematics/` to make them discoverable via `/locate schematic <name>`.
+6. Admins can locate saved player homes with `/locate playerhome <player> [name]`.
 
 ## Compatibility
 - NeoForge 1.21.1
