@@ -387,7 +387,9 @@ public class AsyncLocateHandler {
             anchors.add(new BlockPos(x, origin.getY(), z));
         }
         return anchors;
-        public static void locateBiomeVariantsAsync (CommandSourceStack source, String biomeQuery, BlockPos
+    }
+
+    public static void locateBiomeVariantsAsync (CommandSourceStack source, String biomeQuery, BlockPos
         origin, ServerLevel level){
             final LocateSettings settings = SETTINGS;
             CompletableFuture.runAsync(() -> {
@@ -665,7 +667,9 @@ public class AsyncLocateHandler {
                 }
             });
             return future.join();
-            private record BiomeVariantResult(String biomeId, int distance) {
+        }
+
+        private record BiomeVariantResult(String biomeId, int distance) {
                 private static void sendRingProgressUpdate(ServerLevel level, CommandSourceStack source, int scanRadius, int step, int totalSteps, long startedAtMs) {
                     int progressPercent = Mth.clamp((int) Math.round((step * 100.0D) / totalSteps), 1, 100);
                     long elapsedMs = Math.max(1L, System.currentTimeMillis() - startedAtMs);
