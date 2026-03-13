@@ -22,9 +22,8 @@ public class LocateFixerLastDeathCommand {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("locate")
-                .then(Commands.literal("last")
-                        .then(Commands.literal("death")
-                                .executes(context -> execute(context.getSource())))));
+                .then(Commands.literal("lastdeath")
+                        .executes(context -> execute(context.getSource()))));
     }
 
     private static int execute(CommandSourceStack source) throws CommandSyntaxException {
