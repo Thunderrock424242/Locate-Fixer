@@ -13,6 +13,7 @@ import net.minecraft.server.level.ServerLevel;
 
 public class LocateFixerSchematicCommand {
 
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("locate")
                 .then(Commands.literal("schematic")
