@@ -46,7 +46,7 @@ public class locatefixer {
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {
-        SchematicLocatorRegistry.scanWorldEditSchematicsFolder();
+        AsyncLocateHandler.runAsyncTask("schematic-scan", SchematicLocatorRegistry::scanWorldEditSchematicsFolder);
         if (ModList.get().isLoaded("worldedit")) {
             WorldEditHook.enable();
         }
