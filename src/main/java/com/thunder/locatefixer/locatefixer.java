@@ -5,6 +5,7 @@ import com.thunder.locatefixer.command.LocateFixerLastDeathCommand;
 import com.thunder.locatefixer.command.BaseHomeCommand;
 import com.thunder.locatefixer.command.LocateBaseCommand;
 import com.thunder.locatefixer.command.LocateFixerSchematicCommand;
+import com.thunder.locatefixer.command.LocateDimensionCommand;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.integration.WorldEditHook;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
@@ -71,6 +72,7 @@ public class locatefixer {
     public void onRegisterCommands(RegisterCommandsEvent event) {
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
         LocateFixerSchematicCommand.register(dispatcher);
+        LocateDimensionCommand.register(dispatcher);
         LocateFixerLastDeathCommand.register(dispatcher);
         BaseHomeCommand.register(dispatcher);
         LocateBaseCommand.register(dispatcher);
