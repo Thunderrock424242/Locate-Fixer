@@ -7,6 +7,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.ResourceOrTagArgument;
 import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;
 import net.minecraft.core.*;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -21,6 +22,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.Structure;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.TreeSet;
@@ -99,11 +101,13 @@ public class AsyncLocateHandler {
                         .orElseThrow(() -> LocateCommandAccessor.getStructureInvalid().create(structure.asPrintable()));
 
                 int startIndex = findStartIndex(cacheEntry, origin, rings);
+                int totalSteps = Math.max(1, rings.length - startIndex);
+                long startedAt = System.currentTimeMillis();
 
                 for (int i = startIndex; i < rings.length; i++) {
                     int scanRadius = rings[i];
-                    level.getServer().execute(() -> source.sendSuccess(() ->
-                            Component.literal("🔍 Scanning up to " + scanRadius + " blocks..."), false));
+                    int step = (i - startIndex) + 1;
+                    sendRingProgressUpdate(level, source, scanRadius, step, totalSteps, startedAt);
                     LOGGER.info("[LocateFixer] Scanning for structure up to {} blocks", scanRadius);
 
                     Pair<BlockPos, Holder<Structure>> result = level.getChunkSource().getGenerator()
@@ -162,11 +166,13 @@ public class AsyncLocateHandler {
                 }
 
                 int startIndex = findStartIndex(cacheEntry, origin, rings);
+                int totalSteps = Math.max(1, rings.length - startIndex);
+                long startedAt = System.currentTimeMillis();
 
                 for (int i = startIndex; i < rings.length; i++) {
                     int scanRadius = rings[i];
-                    level.getServer().execute(() -> source.sendSuccess(() ->
-                            Component.literal("🔍 Scanning up to " + scanRadius + " blocks..."), false));
+                    int step = (i - startIndex) + 1;
+                    sendRingProgressUpdate(level, source, scanRadius, step, totalSteps, startedAt);
                     LOGGER.info("[LocateFixer] Scanning for biome up to {} blocks", scanRadius);
 
                     Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(biome, origin, scanRadius, computeSampleRadius(scanRadius, settings), computeSampleStep(scanRadius, settings));
@@ -201,7 +207,7 @@ public class AsyncLocateHandler {
                 int poiRadius = settings.poiSearchRadius();
                 LOGGER.info("[LocateFixer] Scanning for POI within {} blocks", poiRadius);
                 level.getServer().execute(() -> source.sendSuccess(() ->
-                        Component.literal("🔍 Scanning for POI up to " + poiRadius + " blocks..."), false));
+                        Component.literal("🔍 Searching... radius " + poiRadius + " blocks (50%) ⏳"), false));
 
                 Optional<Pair<Holder<PoiType>, BlockPos>> result = level.getPoiManager()
                         .findClosestWithType(poiType, origin, poiRadius, PoiManager.Occupancy.ANY);
@@ -211,9 +217,10 @@ public class AsyncLocateHandler {
                     BlockPos pos = found.getSecond();
                     Holder<PoiType> holder = found.getFirst();
 
-                    level.getServer().execute(() ->
-                            LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, true)
-                    );
+                    level.getServer().execute(() -> {
+                            source.sendSuccess(() -> Component.literal("✅ Search completed (100%)."), false);
+                            LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, true);
+                    });
                 } else {
                     level.getServer().execute(() ->
                             source.sendFailure(Component.literal("❌ POI not found within " + poiRadius + " blocks."))
@@ -224,6 +231,74 @@ public class AsyncLocateHandler {
                 LOGGER.error("[LocateFixer] Unexpected error while locating POI", e);
                 level.getServer().execute(() ->
                         source.sendFailure(Component.literal("LocateFixer error (POI): " + e.getMessage())));
+            }
+        }, LOCATE_EXECUTOR);
+    }
+
+    public static void locateBiomeVariantsAsync(CommandSourceStack source, String biomeQuery, BlockPos origin, ServerLevel level) {
+        final LocateSettings settings = SETTINGS;
+        CompletableFuture.runAsync(() -> {
+            try {
+                String normalized = biomeQuery.toLowerCase();
+                Registry<Biome> biomeRegistry = level.registryAccess().registryOrThrow(Registries.BIOME);
+
+                List<Holder.Reference<Biome>> matchingBiomes = new ArrayList<>();
+                for (Holder.Reference<Biome> biomeRef : biomeRegistry.holders().toList()) {
+                    String biomeId = biomeRef.key().location().toString().toLowerCase();
+                    if (biomeId.contains(normalized)) {
+                        matchingBiomes.add(biomeRef);
+                    }
+                }
+
+                if (matchingBiomes.isEmpty()) {
+                    level.getServer().execute(() ->
+                            source.sendFailure(Component.literal("❌ No biome variants matched query: " + biomeQuery))
+                    );
+                    return;
+                }
+
+                int scanRadius = settings.maxRadius();
+                int sampleRadius = computeSampleRadius(scanRadius, settings);
+                int sampleStep = computeSampleStep(scanRadius, settings);
+                int maxCandidates = 24;
+                List<BiomeVariantResult> found = new ArrayList<>();
+
+                for (int i = 0; i < matchingBiomes.size() && i < maxCandidates; i++) {
+                    Holder.Reference<Biome> candidate = matchingBiomes.get(i);
+                    Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(
+                            HolderSet.direct(candidate), origin, scanRadius, sampleRadius, sampleStep
+                    );
+                    if (result != null) {
+                        BlockPos foundPos = result.getFirst();
+                        found.add(new BiomeVariantResult(candidate.key().location().toString(), horizontalDistance(origin, foundPos)));
+                    }
+                }
+
+                if (found.isEmpty()) {
+                    level.getServer().execute(() ->
+                            source.sendFailure(Component.literal("❌ No matching biome variants were found within " + scanRadius + " blocks."))
+                    );
+                    return;
+                }
+
+                found.sort(Comparator.comparingInt(BiomeVariantResult::distance));
+
+                level.getServer().execute(() -> {
+                    int shown = Math.min(found.size(), 8);
+                    source.sendSuccess(() -> Component.literal("🌳 " + biomeQuery + " variants found:"), false);
+                    for (int i = 0; i < shown; i++) {
+                        BiomeVariantResult result = found.get(i);
+                        source.sendSuccess(() -> Component.literal("• " + result.biomeId() + " (" + result.distance() + " blocks)"), false);
+                    }
+                    if (found.size() > shown) {
+                        int remaining = found.size() - shown;
+                        source.sendSuccess(() -> Component.literal("…and " + remaining + " more variants."), false);
+                    }
+                });
+            } catch (Exception e) {
+                LOGGER.error("[LocateFixer] Unexpected error while locating biome variants", e);
+                level.getServer().execute(() ->
+                        source.sendFailure(Component.literal("LocateFixer error (biome variants): " + e.getMessage())));
             }
         }, LOCATE_EXECUTOR);
     }
@@ -432,6 +507,17 @@ public class AsyncLocateHandler {
             }
         });
         return future.join();
+    private record BiomeVariantResult(String biomeId, int distance) {
+    private static void sendRingProgressUpdate(ServerLevel level, CommandSourceStack source, int scanRadius, int step, int totalSteps, long startedAtMs) {
+        int progressPercent = Mth.clamp((int) Math.round((step * 100.0D) / totalSteps), 1, 100);
+        long elapsedMs = Math.max(1L, System.currentTimeMillis() - startedAtMs);
+        long avgStepMs = elapsedMs / Math.max(1, step);
+        long remainingMs = Math.max(0L, avgStepMs * (totalSteps - step));
+        long remainingSeconds = TimeUnit.MILLISECONDS.toSeconds(remainingMs);
+        String etaText = remainingSeconds > 0 ? " ⏳ ~" + remainingSeconds + "s remaining" : "";
+
+        level.getServer().execute(() -> source.sendSuccess(() ->
+                Component.literal("🔍 Searching... radius " + scanRadius + " blocks (" + progressPercent + "%)" + etaText), false));
     }
 
     public static void reloadConfig() {
