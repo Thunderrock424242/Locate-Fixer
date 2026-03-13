@@ -21,6 +21,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.levelgen.Heightmap;
 import com.thunder.locatefixer.teleport.LocateTeleportHandler;
+import com.thunder.locatefixer.util.AsyncLocateHandler;
 
 import java.util.List;
 
@@ -60,70 +61,88 @@ public final class LocateDimensionCommand {
 
     private static int execute(CommandSourceStack source, ServerLevel targetLevel, ResourceLocation biomeId) throws CommandSyntaxException {
         ServerPlayer player = source.getPlayerOrException();
-        RandomSource random = targetLevel.getRandom();
+        source.sendSuccess(() -> Component.literal("🔍 Locating destination biome asynchronously..."), false);
 
-        List<Holder<Biome>> possibleBiomes = targetLevel.getChunkSource()
-                .getGenerator()
-                .getBiomeSource()
-                .possibleBiomes()
-                .stream()
-                .toList();
+        AsyncLocateHandler.runAsyncTask("locate-dimension", () -> {
+            RandomSource random = RandomSource.create();
 
-        if (possibleBiomes.isEmpty()) {
-            source.sendFailure(Component.literal("❌ No biomes were found for that dimension."));
-            return 0;
-        }
+            List<Holder<Biome>> possibleBiomes = targetLevel.getChunkSource()
+                    .getGenerator()
+                    .getBiomeSource()
+                    .possibleBiomes()
+                    .stream()
+                    .toList();
 
-        Pair<BlockPos, Holder<Biome>> selectedBiome = null;
-        if (biomeId != null) {
-            ResourceKey<Biome> biomeKey = ResourceKey.create(Registries.BIOME, biomeId);
+            if (possibleBiomes.isEmpty()) {
+                targetLevel.getServer().execute(() -> source.sendFailure(Component.literal("❌ No biomes were found for that dimension.")));
+                return;
+            }
+
+            Pair<BlockPos, Holder<Biome>> selectedBiome = null;
             for (int attempt = 0; attempt < MAX_RANDOM_ATTEMPTS && selectedBiome == null; attempt++) {
+                int progress = Math.max(1, (int) Math.round(((attempt + 1) * 100.0D) / MAX_RANDOM_ATTEMPTS));
+                int searchAttempt = attempt + 1;
+                targetLevel.getServer().execute(() -> source.sendSuccess(() ->
+                        Component.literal("🔍 Locating biome... attempt " + searchAttempt + "/" + MAX_RANDOM_ATTEMPTS + " (" + progress + "%)"), false));
+
                 BlockPos randomOrigin = new BlockPos(
                         random.nextIntBetweenInclusive(-RANDOM_COORD_RANGE, RANDOM_COORD_RANGE),
                         targetLevel.getSeaLevel(),
                         random.nextIntBetweenInclusive(-RANDOM_COORD_RANGE, RANDOM_COORD_RANGE)
                 );
-                selectedBiome = targetLevel.findClosestBiome3d(holder -> holder.is(biomeKey), randomOrigin,
-                        BIOME_SEARCH_RADIUS, BIOME_HORIZONTAL_STEP, BIOME_VERTICAL_STEP);
+
+                if (biomeId != null) {
+                    ResourceKey<Biome> biomeKey = ResourceKey.create(Registries.BIOME, biomeId);
+                    selectedBiome = targetLevel.findClosestBiome3d(holder -> holder.is(biomeKey), randomOrigin,
+                            BIOME_SEARCH_RADIUS, BIOME_HORIZONTAL_STEP, BIOME_VERTICAL_STEP);
+                } else {
+                    Holder<Biome> biome = possibleBiomes.get(random.nextInt(possibleBiomes.size()));
+                    selectedBiome = targetLevel.findClosestBiome3d(holder -> holder.is(biome), randomOrigin,
+                            BIOME_SEARCH_RADIUS, BIOME_HORIZONTAL_STEP, BIOME_VERTICAL_STEP);
+                }
             }
-        } else {
-            for (int attempt = 0; attempt < MAX_RANDOM_ATTEMPTS && selectedBiome == null; attempt++) {
-                Holder<Biome> biome = possibleBiomes.get(random.nextInt(possibleBiomes.size()));
-                BlockPos randomOrigin = new BlockPos(
-                        random.nextIntBetweenInclusive(-RANDOM_COORD_RANGE, RANDOM_COORD_RANGE),
-                        targetLevel.getSeaLevel(),
-                        random.nextIntBetweenInclusive(-RANDOM_COORD_RANGE, RANDOM_COORD_RANGE)
-                );
 
-                selectedBiome = targetLevel.findClosestBiome3d(holder -> holder.is(biome), randomOrigin,
-                        BIOME_SEARCH_RADIUS, BIOME_HORIZONTAL_STEP, BIOME_VERTICAL_STEP);
+            if (selectedBiome == null) {
+                String biomeLabel = biomeId == null ? "a random biome" : "biome " + biomeId;
+                targetLevel.getServer().execute(() -> source.sendFailure(Component.literal("❌ Could not find " + biomeLabel + " in that dimension.")));
+                return;
             }
-        }
 
-        if (selectedBiome == null) {
-            String biomeLabel = biomeId == null ? "a random biome" : "biome " + biomeId;
-            source.sendFailure(Component.literal("❌ Could not find " + biomeLabel + " in that dimension."));
-            return 0;
-        }
+            BlockPos biomePos = selectedBiome.getFirst();
+            Holder<Biome> biome = selectedBiome.getSecond();
+            BlockPos surfaceOrigin = findSurfaceAnchor(targetLevel, biomePos);
+            BlockPos safeTarget = LocateTeleportHandler.findSurfaceSafeTeleportPosition(targetLevel, surfaceOrigin);
 
-        BlockPos biomePos = selectedBiome.getFirst();
-        Holder<Biome> biome = selectedBiome.getSecond();
-        int topY = targetLevel.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, biomePos.getX(), biomePos.getZ());
-        BlockPos targetPos = LocateTeleportHandler.findSafeTeleportPosition(
-                targetLevel,
-                new BlockPos(biomePos.getX(), topY + 1, biomePos.getZ())
-        );
+            targetLevel.getServer().execute(() -> {
+                if (player.isRemoved()) {
+                    return;
+                }
 
-        player.teleportTo(targetLevel, targetPos.getX() + 0.5D, targetPos.getY(), targetPos.getZ() + 0.5D,
-                player.getYRot(), player.getXRot());
+                String biomeName = biome.unwrapKey()
+                        .map(key -> key.location().toString())
+                        .orElse("unknown");
+                String destinationLabel = biomeId == null ? "random biome " + biomeName : "biome " + biomeName;
 
-        String biomeName = biome.unwrapKey()
-                .map(key -> key.location().toString())
-                .orElse("unknown");
+                source.sendSuccess(() -> Component.literal("📦 Destination found. Preloading chunks for safe teleport..."), false);
+                LocateTeleportHandler.startTeleportWithPreload(player, targetLevel, safeTarget, finalPos -> {
+                    player.teleportTo(targetLevel, finalPos.getX() + 0.5D, finalPos.getY(), finalPos.getZ() + 0.5D,
+                            player.getYRot(), player.getXRot());
+                    source.sendSuccess(() -> Component.literal("✅ Teleported to " + destinationLabel +
+                            " at " + finalPos.getX() + " " + finalPos.getY() + " " + finalPos.getZ()), true);
+                });
+            });
+        });
 
-        String destinationLabel = biomeId == null ? "random biome " + biomeName : "biome " + biomeName;
-        source.sendSuccess(() -> Component.literal("✅ Teleported to " + destinationLabel +
-                " at " + targetPos.getX() + " " + targetPos.getY() + " " + targetPos.getZ()), true);
         return 1;
+    }
+
+    private static BlockPos findSurfaceAnchor(ServerLevel level, BlockPos biomePos) {
+        int worldSurfaceY = level.getHeight(Heightmap.Types.WORLD_SURFACE, biomePos.getX(), biomePos.getZ());
+        int motionBlockingY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, biomePos.getX(), biomePos.getZ());
+        int anchorY = Math.max(worldSurfaceY, motionBlockingY) + 1;
+        int minSafeY = level.getMinBuildHeight() + 4;
+        int maxSafeY = level.getMaxBuildHeight() - 3;
+        int clampedY = Math.max(minSafeY, Math.min(maxSafeY, anchorY));
+        return new BlockPos(biomePos.getX(), clampedY, biomePos.getZ());
     }
 }
