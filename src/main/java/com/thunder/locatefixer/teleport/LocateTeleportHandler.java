@@ -10,6 +10,8 @@ import net.minecraft.world.level.biome.Biome;
 import net.neoforged.neoforge.common.Tags;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.tags.FluidTags;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -168,7 +170,16 @@ public final class LocateTeleportHandler {
     private static boolean isSafePosition(ServerLevel level, BlockPos pos) {
         int minY = level.getMinBuildHeight();
         int maxY = level.getMaxBuildHeight() - SAFE_AREA_HEIGHT;
-        if (pos.getY() < minY || pos.getY() > maxY) {
+        if (pos.getY() <= minY || pos.getY() > maxY) {
+            return false;
+        }
+
+        BlockPos belowPos = pos.below();
+        BlockState belowState = level.getBlockState(belowPos);
+        if (!belowState.isFaceSturdy(level, belowPos, net.minecraft.core.Direction.UP)) {
+            return false;
+        }
+        if (belowState.getFluidState().is(FluidTags.LAVA)) {
             return false;
         }
 
