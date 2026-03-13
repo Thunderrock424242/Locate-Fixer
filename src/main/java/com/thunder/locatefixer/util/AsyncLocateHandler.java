@@ -7,6 +7,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.ResourceOrTagArgument;
 import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;
 import net.minecraft.core.*;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
@@ -17,6 +18,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.Structure;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.TreeSet;
@@ -224,6 +226,74 @@ public class AsyncLocateHandler {
         }, LOCATE_EXECUTOR);
     }
 
+    public static void locateBiomeVariantsAsync(CommandSourceStack source, String biomeQuery, BlockPos origin, ServerLevel level) {
+        final LocateSettings settings = SETTINGS;
+        CompletableFuture.runAsync(() -> {
+            try {
+                String normalized = biomeQuery.toLowerCase();
+                Registry<Biome> biomeRegistry = level.registryAccess().registryOrThrow(Registries.BIOME);
+
+                List<Holder.Reference<Biome>> matchingBiomes = new ArrayList<>();
+                for (Holder.Reference<Biome> biomeRef : biomeRegistry.holders().toList()) {
+                    String biomeId = biomeRef.key().location().toString().toLowerCase();
+                    if (biomeId.contains(normalized)) {
+                        matchingBiomes.add(biomeRef);
+                    }
+                }
+
+                if (matchingBiomes.isEmpty()) {
+                    level.getServer().execute(() ->
+                            source.sendFailure(Component.literal("❌ No biome variants matched query: " + biomeQuery))
+                    );
+                    return;
+                }
+
+                int scanRadius = settings.maxRadius();
+                int sampleRadius = computeSampleRadius(scanRadius, settings);
+                int sampleStep = computeSampleStep(scanRadius, settings);
+                int maxCandidates = 24;
+                List<BiomeVariantResult> found = new ArrayList<>();
+
+                for (int i = 0; i < matchingBiomes.size() && i < maxCandidates; i++) {
+                    Holder.Reference<Biome> candidate = matchingBiomes.get(i);
+                    Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(
+                            HolderSet.direct(candidate), origin, scanRadius, sampleRadius, sampleStep
+                    );
+                    if (result != null) {
+                        BlockPos foundPos = result.getFirst();
+                        found.add(new BiomeVariantResult(candidate.key().location().toString(), horizontalDistance(origin, foundPos)));
+                    }
+                }
+
+                if (found.isEmpty()) {
+                    level.getServer().execute(() ->
+                            source.sendFailure(Component.literal("❌ No matching biome variants were found within " + scanRadius + " blocks."))
+                    );
+                    return;
+                }
+
+                found.sort(Comparator.comparingInt(BiomeVariantResult::distance));
+
+                level.getServer().execute(() -> {
+                    int shown = Math.min(found.size(), 8);
+                    source.sendSuccess(() -> Component.literal("🌳 " + biomeQuery + " variants found:"), false);
+                    for (int i = 0; i < shown; i++) {
+                        BiomeVariantResult result = found.get(i);
+                        source.sendSuccess(() -> Component.literal("• " + result.biomeId() + " (" + result.distance() + " blocks)"), false);
+                    }
+                    if (found.size() > shown) {
+                        int remaining = found.size() - shown;
+                        source.sendSuccess(() -> Component.literal("…and " + remaining + " more variants."), false);
+                    }
+                });
+            } catch (Exception e) {
+                LOGGER.error("[LocateFixer] Unexpected error while locating biome variants", e);
+                level.getServer().execute(() ->
+                        source.sendFailure(Component.literal("LocateFixer error (biome variants): " + e.getMessage())));
+            }
+        }, LOCATE_EXECUTOR);
+    }
+
     private static <T> LocateCacheEntry<T> getValidCacheEntry(ConcurrentMap<LocateCacheKey, LocateCacheEntry<T>> cache, LocateCacheKey key, long cacheDurationMs) {
         LocateCacheEntry<T> entry = cache.get(key);
         if (entry == null) {
@@ -283,6 +353,9 @@ public class AsyncLocateHandler {
         int dx = target.getX() - origin.getX();
         int dz = target.getZ() - origin.getZ();
         return (int) Math.sqrt((double) dx * dx + (double) dz * dz);
+    }
+
+    private record BiomeVariantResult(String biomeId, int distance) {
     }
 
     public static void reloadConfig() {
