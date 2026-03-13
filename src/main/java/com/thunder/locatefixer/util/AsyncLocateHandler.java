@@ -421,7 +421,7 @@ public class AsyncLocateHandler {
                     for (int i = 0; i < matchingBiomes.size() && i < maxCandidates; i++) {
                         Holder.Reference<Biome> candidate = matchingBiomes.get(i);
                         Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(
-                                HolderSet.direct(candidate), origin, scanRadius, sampleRadius, sampleStep
+                                holder -> holder.is(candidate.key()), origin, scanRadius, sampleRadius, sampleStep
                         );
                         if (result != null) {
                             BlockPos foundPos = result.getFirst();
@@ -535,7 +535,7 @@ public class AsyncLocateHandler {
 
                     Optional<? extends Holder.Reference<Block>> blockHolder = level.registryAccess()
                             .lookupOrThrow(net.minecraft.core.registries.Registries.BLOCK)
-                            .get(blockKey);
+                            .get(ResourceKey.create(Registries.BLOCK, blockKey));
                     if (blockHolder.isEmpty()) {
                         level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Unknown block: " + blockId)));
                         return;
@@ -573,7 +573,7 @@ public class AsyncLocateHandler {
         private static Optional<BlockPos> findNearestBlockInRadius (ServerLevel level, BlockPos origin, Block
         targetBlock,int searchRadius){
             BlockPos bestPos = null;
-            long bestDistanceSq = Long.MAX_VALUE;
+            double bestDistanceSq = Double.MAX_VALUE;
 
             int originChunkX = SectionPos.blockToSectionCoord(origin.getX());
             int originChunkZ = SectionPos.blockToSectionCoord(origin.getZ());
@@ -600,7 +600,7 @@ public class AsyncLocateHandler {
                             continue;
                         }
 
-                        long distSq = origin.distSqr(candidate);
+                        double distSq = origin.distSqr(candidate);
                         if (distSq < bestDistanceSq) {
                             bestDistanceSq = distSq;
                             bestPos = candidate.immutable();
@@ -619,7 +619,7 @@ public class AsyncLocateHandler {
         int searchRadius){
             BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
             BlockPos bestPos = null;
-            long bestDistanceSq = Long.MAX_VALUE;
+            double bestDistanceSq = Double.MAX_VALUE;
 
             int minY = chunk.getMinBuildHeight();
             int maxY = chunk.getMaxBuildHeight() - 1;
@@ -644,7 +644,7 @@ public class AsyncLocateHandler {
                         cursor.set(x, y, z);
                         BlockState state = chunk.getBlockState(cursor);
                         if (state.is(targetBlock)) {
-                            long distSq = origin.distSqr(cursor);
+                            double distSq = origin.distSqr(cursor);
                             if (distSq < bestDistanceSq) {
                                 bestDistanceSq = distSq;
                                 bestPos = cursor.immutable();
@@ -670,6 +670,8 @@ public class AsyncLocateHandler {
         }
 
         private record BiomeVariantResult(String biomeId, int distance) {
+        }
+
                 private static void sendRingProgressUpdate(ServerLevel level, CommandSourceStack source, int scanRadius, int step, int totalSteps, long startedAtMs) {
                     int progressPercent = Mth.clamp((int) Math.round((step * 100.0D) / totalSteps), 1, 100);
                     long elapsedMs = Math.max(1L, System.currentTimeMillis() - startedAtMs);
@@ -770,5 +772,4 @@ public class AsyncLocateHandler {
                         return rings.length == 0 ? 0 : rings[rings.length - 1];
                     }
                 }
-            }
         }

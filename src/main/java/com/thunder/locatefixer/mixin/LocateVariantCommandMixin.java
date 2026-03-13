@@ -3,6 +3,7 @@ package com.thunder.locatefixer.mixin;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.mojang.brigadier.tree.CommandNode;
 import com.mojang.brigadier.tree.LiteralCommandNode;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import net.minecraft.commands.CommandBuildContext;
@@ -25,8 +26,9 @@ public class LocateVariantCommandMixin {
             CommandBuildContext context,
             CallbackInfo ci
     ) {
-        LiteralCommandNode<CommandSourceStack> locateNode = dispatcher.getRoot().getChild("locate");
-        if (locateNode == null || locateNode.getChild("biomevariants") != null) {
+        CommandNode<CommandSourceStack> locateNode = dispatcher.getRoot().getChild("locate");
+        if (!(locateNode instanceof LiteralCommandNode<CommandSourceStack> literalLocateNode)
+                || locateNode.getChild("biomevariants") != null) {
             return;
         }
 
@@ -41,6 +43,6 @@ public class LocateVariantCommandMixin {
                             return 1;
                         }));
 
-        locateNode.addChild(biomeVariants.build());
+        literalLocateNode.addChild(biomeVariants.build());
     }
 }
