@@ -8,6 +8,7 @@ import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.server.level.ServerLevel;
 
@@ -24,7 +25,8 @@ public class LocateFixerBlockCommand {
                                     return SharedSuggestionProvider.suggestResource(
                                             context.getSource().registryAccess()
                                                     .lookupOrThrow(Registries.BLOCK)
-                                                    .listElementIds(),
+                                                    .listElementIds()
+                                                    .map(ResourceKey::location),
                                             builder
                                     );
                                 })

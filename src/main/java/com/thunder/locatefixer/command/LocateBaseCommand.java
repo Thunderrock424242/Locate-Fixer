@@ -2,6 +2,7 @@ package com.thunder.locatefixer.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.thunder.locatefixer.data.PlayerBaseSavedData;
 import com.thunder.locatefixer.util.LocateResultHelper;
 import net.minecraft.commands.CommandSourceStack;
@@ -106,8 +107,12 @@ public class LocateBaseCommand {
             com.mojang.brigadier.suggestion.SuggestionsBuilder builder,
             String playerArg
     ) {
-        ServerPlayer target = EntityArgument.getPlayer(ctx, playerArg);
-        Set<String> bases = PlayerBaseSavedData.get(ctx.getSource().getLevel()).getBaseNames(target.getUUID());
-        return SharedSuggestionProvider.suggest(bases, builder);
+        try {
+            ServerPlayer target = EntityArgument.getPlayer(ctx, playerArg);
+            Set<String> bases = PlayerBaseSavedData.get(ctx.getSource().getLevel()).getBaseNames(target.getUUID());
+            return SharedSuggestionProvider.suggest(bases, builder);
+        } catch (CommandSyntaxException ignored) {
+            return builder.buildFuture();
+        }
     }
 }
