@@ -527,11 +527,12 @@ public class AsyncLocateHandler {
         public static void locateBlockAsync (CommandSourceStack source, String blockId, BlockPos origin, ServerLevel
         level){
             final LocateSettings settings = SETTINGS;
+            String normalizedBlockId = blockId.trim();
             CompletableFuture.runAsync(() -> {
                 try {
-                    ResourceLocation blockKey = ResourceLocation.tryParse(blockId);
+                    ResourceLocation blockKey = ResourceLocation.tryParse(normalizedBlockId);
                     if (blockKey == null) {
-                        level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Invalid block id: " + blockId)));
+                        level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Invalid block id: " + normalizedBlockId)));
                         return;
                     }
 
@@ -539,7 +540,7 @@ public class AsyncLocateHandler {
                             .lookupOrThrow(net.minecraft.core.registries.Registries.BLOCK)
                             .get(ResourceKey.create(Registries.BLOCK, blockKey));
                     if (blockHolder.isEmpty()) {
-                        level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Unknown block: " + blockId)));
+                        level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Unknown block: " + normalizedBlockId)));
                         return;
                     }
 
@@ -548,7 +549,7 @@ public class AsyncLocateHandler {
 
                     for (int radius : rings) {
                         level.getServer().execute(() -> source.sendSuccess(() ->
-                                Component.literal("🔍 Scanning up to " + radius + " blocks for " + blockId + "..."), false));
+                                Component.literal("🔍 Scanning up to " + radius + " blocks for " + normalizedBlockId + "..."), false));
 
                         Optional<BlockPos> found = runOnServerThread(level, () -> findNearestBlockInRadius(level, origin, target.value(), radius));
                         if (found.isPresent()) {
@@ -564,9 +565,9 @@ public class AsyncLocateHandler {
                         }
                     }
 
-                    level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Could not find block '" + blockId + "' within configured locate radii.")));
+                    level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Could not find block '" + normalizedBlockId + "' within configured locate radii.")));
                 } catch (Exception e) {
-                    LOGGER.error("[LocateFixer] locate block failed for '{}'", blockId, e);
+                    LOGGER.error("[LocateFixer] locate block failed for '{}'", normalizedBlockId, e);
                     level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Locate block failed: " + e.getMessage())));
                 }
             }, LOCATE_EXECUTOR);
