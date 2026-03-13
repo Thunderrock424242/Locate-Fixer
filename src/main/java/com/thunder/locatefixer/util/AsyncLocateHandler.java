@@ -610,12 +610,9 @@ public class AsyncLocateHandler {
                         }
                     }
                 }
-                if (bestPos != null) {
-                    return Optional.of(bestPos);
-                }
             }
 
-            return Optional.empty();
+            return Optional.ofNullable(bestPos);
         }
 
         private static BlockPos findNearestInChunk (LevelChunk chunk, BlockPos origin, Block targetBlock,
