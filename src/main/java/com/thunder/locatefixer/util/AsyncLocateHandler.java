@@ -9,6 +9,7 @@ import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;
 import net.minecraft.core.*;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
@@ -23,8 +24,10 @@ import net.minecraft.world.level.levelgen.structure.Structure;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -235,6 +238,155 @@ public class AsyncLocateHandler {
         }, LOCATE_EXECUTOR);
     }
 
+    public static int locateNearestStructuresAsync(CommandSourceStack source, ResourceLocation structureId, int count) {
+        ServerLevel level = source.getLevel();
+        BlockPos origin = BlockPos.containing(source.getPosition());
+        final LocateSettings settings = SETTINGS;
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                Registry<Structure> registry = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE);
+                ResourceKey<Structure> key = ResourceKey.create(net.minecraft.core.registries.Registries.STRUCTURE, structureId);
+                Optional<Holder.Reference<Structure>> maybeHolder = registry.getHolder(key);
+                if (maybeHolder.isEmpty()) {
+                    level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Unknown structure id: " + structureId)));
+                    return;
+                }
+
+                HolderSet<Structure> holders = HolderSet.direct(maybeHolder.get());
+                List<LocatedEntry> found = new ArrayList<>();
+                Set<Long> seen = new HashSet<>();
+
+                for (int ring : settings.rings()) {
+                    level.getServer().execute(() -> source.sendSuccess(() ->
+                            Component.literal("🔍 Scanning for nearest " + count + " structures up to " + ring + " blocks..."), false));
+                    for (BlockPos anchor : createAnchors(origin, ring)) {
+                        Pair<BlockPos, Holder<Structure>> result = level.getChunkSource().getGenerator()
+                                .findNearestMapStructure(level, holders, anchor, ring, false);
+                        if (result == null) {
+                            continue;
+                        }
+
+                        BlockPos pos = result.getFirst();
+                        if (seen.add(pos.asLong())) {
+                            found.add(new LocatedEntry(pos, result.getSecond().getRegisteredName(), horizontalDistance(origin, pos)));
+                        }
+                    }
+
+                    if (found.size() >= count) {
+                        break;
+                    }
+                }
+
+                found.sort(Comparator.comparingInt(LocatedEntry::distance));
+                List<LocatedEntry> nearest = found.stream().limit(count).toList();
+
+                level.getServer().execute(() -> {
+                    if (nearest.isEmpty()) {
+                        source.sendFailure(Component.literal("❌ Structure not found within " + settings.maxRadius() + " blocks."));
+                        return;
+                    }
+                    source.sendSuccess(() -> Component.literal("✅ Nearest " + nearest.size() + " results for structure '" + structureId + "':"), false);
+                    for (int i = 0; i < nearest.size(); i++) {
+                        LocatedEntry entry = nearest.get(i);
+                        source.sendSuccess(() -> Component.literal((i + 1) + ") " + entry.distance() + " blocks at ("
+                                + entry.pos().getX() + " " + entry.pos().getY() + " " + entry.pos().getZ() + ")"
+                                + " [" + entry.name() + "]"), false);
+                    }
+                });
+            } catch (Exception e) {
+                LOGGER.error("[LocateFixer] Unexpected error while locating nearest structures", e);
+                level.getServer().execute(() -> source.sendFailure(Component.literal("LocateFixer error (structure multi): " + e.getMessage())));
+            }
+        }, LOCATE_EXECUTOR);
+
+        return count;
+    }
+
+    public static int locateNearestBiomesAsync(CommandSourceStack source, ResourceLocation biomeId, int count) {
+        ServerLevel level = source.getLevel();
+        BlockPos origin = BlockPos.containing(source.getPosition());
+        final LocateSettings settings = SETTINGS;
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                Registry<Biome> registry = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.BIOME);
+                ResourceKey<Biome> key = ResourceKey.create(net.minecraft.core.registries.Registries.BIOME, biomeId);
+                Optional<Holder.Reference<Biome>> maybeHolder = registry.getHolder(key);
+                if (maybeHolder.isEmpty()) {
+                    level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Unknown biome id: " + biomeId)));
+                    return;
+                }
+                Holder.Reference<Biome> targetBiome = maybeHolder.get();
+
+                List<LocatedEntry> found = new ArrayList<>();
+                Set<Long> seen = new HashSet<>();
+
+                for (int ring : settings.rings()) {
+                    int step = computeSampleStep(ring, settings);
+                    level.getServer().execute(() -> source.sendSuccess(() ->
+                            Component.literal("🔍 Sampling for nearest " + count + " biomes up to " + ring + " blocks..."), false));
+
+                    for (int x = origin.getX() - ring; x <= origin.getX() + ring; x += step) {
+                        for (int z = origin.getZ() - ring; z <= origin.getZ() + ring; z += step) {
+                            int dx = x - origin.getX();
+                            int dz = z - origin.getZ();
+                            if ((dx * dx) + (dz * dz) > (ring * ring)) {
+                                continue;
+                            }
+                            BlockPos samplePos = new BlockPos(x, level.getSeaLevel(), z);
+                            Holder<Biome> sampled = level.getBiome(samplePos);
+                            if (!sampled.is(targetBiome)) {
+                                continue;
+                            }
+                            long keyPos = samplePos.asLong();
+                            if (seen.add(keyPos)) {
+                                found.add(new LocatedEntry(samplePos, targetBiome.getRegisteredName(), horizontalDistance(origin, samplePos)));
+                            }
+                        }
+                    }
+
+                    if (found.size() >= count) {
+                        break;
+                    }
+                }
+
+                found.sort(Comparator.comparingInt(LocatedEntry::distance));
+                List<LocatedEntry> nearest = found.stream().limit(count).toList();
+
+                level.getServer().execute(() -> {
+                    if (nearest.isEmpty()) {
+                        source.sendFailure(Component.literal("❌ Biome not found within " + settings.maxRadius() + " blocks."));
+                        return;
+                    }
+                    source.sendSuccess(() -> Component.literal("✅ Nearest " + nearest.size() + " results for biome '" + biomeId + "':"), false);
+                    for (int i = 0; i < nearest.size(); i++) {
+                        LocatedEntry entry = nearest.get(i);
+                        source.sendSuccess(() -> Component.literal((i + 1) + ") " + entry.distance() + " blocks at ("
+                                + entry.pos().getX() + " " + entry.pos().getY() + " " + entry.pos().getZ() + ")"
+                                + " [" + entry.name() + "]"), false);
+                    }
+                });
+            } catch (Exception e) {
+                LOGGER.error("[LocateFixer] Unexpected error while locating nearest biomes", e);
+                level.getServer().execute(() -> source.sendFailure(Component.literal("LocateFixer error (biome multi): " + e.getMessage())));
+            }
+        }, LOCATE_EXECUTOR);
+
+        return count;
+    }
+
+    private static List<BlockPos> createAnchors(BlockPos origin, int radius) {
+        List<BlockPos> anchors = new ArrayList<>();
+        anchors.add(origin);
+        int samples = Math.max(8, Math.min(32, radius / 4000 + 8));
+        for (int i = 0; i < samples; i++) {
+            double angle = (Math.PI * 2D * i) / samples;
+            int x = origin.getX() + (int) Math.round(Math.cos(angle) * radius);
+            int z = origin.getZ() + (int) Math.round(Math.sin(angle) * radius);
+            anchors.add(new BlockPos(x, origin.getY(), z));
+        }
+        return anchors;
     public static void locateBiomeVariantsAsync(CommandSourceStack source, String biomeQuery, BlockPos origin, ServerLevel level) {
         final LocateSettings settings = SETTINGS;
         CompletableFuture.runAsync(() -> {
@@ -595,6 +747,9 @@ public class AsyncLocateHandler {
     }
 
     private record LocateCacheEntry<T>(BlockPos pos, Holder<T> holder, long timestamp) {
+    }
+
+    private record LocatedEntry(BlockPos pos, String name, int distance) {
     }
 
     private record LocateSettings(int[] rings, int poiSearchRadius, long cacheDurationMs, int cacheGranularity,
