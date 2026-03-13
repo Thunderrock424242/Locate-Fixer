@@ -43,6 +43,16 @@ public class AsyncLocateHandler {
     private static final ConcurrentMap<LocateCacheKey, LocateCacheEntry<Structure>> STRUCTURE_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentMap<LocateCacheKey, LocateCacheEntry<Biome>> BIOME_CACHE = new ConcurrentHashMap<>();
 
+    public static void runAsyncTask(String taskName, Runnable task) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                task.run();
+            } catch (Exception e) {
+                LOGGER.error("[LocateFixer] Async task '{}' failed", taskName, e);
+            }
+        }, LOCATE_EXECUTOR);
+    }
+
     public static void locateStructureAsync(CommandSourceStack source, ResourceOrTagKeyArgument.Result<Structure> structure, BlockPos origin, ServerLevel level) {
         final LocateSettings settings = SETTINGS;
         CompletableFuture.runAsync(() -> {
