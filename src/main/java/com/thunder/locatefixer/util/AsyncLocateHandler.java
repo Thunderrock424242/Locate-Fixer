@@ -9,11 +9,15 @@ import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;
 import net.minecraft.core.*;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
 import net.minecraft.world.entity.ai.village.poi.PoiType;
 import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.Structure;
 
@@ -360,6 +364,149 @@ public class AsyncLocateHandler {
         return (int) Math.sqrt((double) dx * dx + (double) dz * dz);
     }
 
+
+    public static void locateBlockAsync(CommandSourceStack source, String blockId, BlockPos origin, ServerLevel level) {
+        final LocateSettings settings = SETTINGS;
+        CompletableFuture.runAsync(() -> {
+            try {
+                ResourceLocation blockKey = ResourceLocation.tryParse(blockId);
+                if (blockKey == null) {
+                    level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Invalid block id: " + blockId)));
+                    return;
+                }
+
+                Optional<? extends Holder.Reference<Block>> blockHolder = level.registryAccess()
+                        .lookupOrThrow(net.minecraft.core.registries.Registries.BLOCK)
+                        .get(blockKey);
+                if (blockHolder.isEmpty()) {
+                    level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Unknown block: " + blockId)));
+                    return;
+                }
+
+                Holder.Reference<Block> target = blockHolder.get();
+                int[] rings = settings.rings();
+
+                for (int radius : rings) {
+                    level.getServer().execute(() -> source.sendSuccess(() ->
+                            Component.literal("🔍 Scanning up to " + radius + " blocks for " + blockId + "..."), false));
+
+                    Optional<BlockPos> found = runOnServerThread(level, () -> findNearestBlockInRadius(level, origin, target.value(), radius));
+                    if (found.isPresent()) {
+                        BlockPos foundPos = found.get();
+                        level.getServer().execute(() -> {
+                            Component name = Component.translatable(target.value().getDescriptionId());
+                            source.sendSuccess(() -> Component.literal("✅ Nearest ").append(name).append(" found ")
+                                    .append(String.valueOf(horizontalDistance(origin, foundPos)))
+                                    .append(" blocks away."), false);
+                            source.sendSuccess(() -> Component.literal("Coordinates: " + foundPos.getX() + " " + foundPos.getY() + " " + foundPos.getZ()), false);
+                        });
+                        return;
+                    }
+                }
+
+                level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Could not find block '" + blockId + "' within configured locate radii.")));
+            } catch (Exception e) {
+                LOGGER.error("[LocateFixer] locate block failed for '{}'", blockId, e);
+                level.getServer().execute(() -> source.sendFailure(Component.literal("❌ Locate block failed: " + e.getMessage())));
+            }
+        }, LOCATE_EXECUTOR);
+    }
+
+    private static Optional<BlockPos> findNearestBlockInRadius(ServerLevel level, BlockPos origin, Block targetBlock, int searchRadius) {
+        BlockPos bestPos = null;
+        long bestDistanceSq = Long.MAX_VALUE;
+
+        int originChunkX = SectionPos.blockToSectionCoord(origin.getX());
+        int originChunkZ = SectionPos.blockToSectionCoord(origin.getZ());
+        int chunkRadius = Mth.ceil(searchRadius / 16.0D);
+
+        for (int ring = 0; ring <= chunkRadius; ring++) {
+            for (int dx = -ring; dx <= ring; dx++) {
+                for (int dz = -ring; dz <= ring; dz++) {
+                    if (ring != 0 && Math.max(Math.abs(dx), Math.abs(dz)) != ring) {
+                        continue;
+                    }
+
+                    int chunkX = originChunkX + dx;
+                    int chunkZ = originChunkZ + dz;
+                    int centerX = (chunkX << 4) + 8;
+                    int centerZ = (chunkZ << 4) + 8;
+                    if (horizontalDistance(origin, new BlockPos(centerX, origin.getY(), centerZ)) > searchRadius + 12) {
+                        continue;
+                    }
+
+                    LevelChunk chunk = level.getChunk(chunkX, chunkZ);
+                    BlockPos candidate = findNearestInChunk(chunk, origin, targetBlock, searchRadius);
+                    if (candidate == null) {
+                        continue;
+                    }
+
+                    long distSq = origin.distSqr(candidate);
+                    if (distSq < bestDistanceSq) {
+                        bestDistanceSq = distSq;
+                        bestPos = candidate.immutable();
+                    }
+                }
+            }
+            if (bestPos != null) {
+                return Optional.of(bestPos);
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    private static BlockPos findNearestInChunk(LevelChunk chunk, BlockPos origin, Block targetBlock, int searchRadius) {
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        BlockPos bestPos = null;
+        long bestDistanceSq = Long.MAX_VALUE;
+
+        int minY = chunk.getMinBuildHeight();
+        int maxY = chunk.getMaxBuildHeight() - 1;
+
+        int minX = chunk.getPos().getMinBlockX();
+        int maxX = chunk.getPos().getMaxBlockX();
+        int minZ = chunk.getPos().getMinBlockZ();
+        int maxZ = chunk.getPos().getMaxBlockZ();
+
+        long maxDistSq = (long) searchRadius * searchRadius;
+
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                int dx = x - origin.getX();
+                int dz = z - origin.getZ();
+                long horizontalSq = (long) dx * dx + (long) dz * dz;
+                if (horizontalSq > maxDistSq) {
+                    continue;
+                }
+
+                for (int y = maxY; y >= minY; y--) {
+                    cursor.set(x, y, z);
+                    BlockState state = chunk.getBlockState(cursor);
+                    if (state.is(targetBlock)) {
+                        long distSq = origin.distSqr(cursor);
+                        if (distSq < bestDistanceSq) {
+                            bestDistanceSq = distSq;
+                            bestPos = cursor.immutable();
+                        }
+                    }
+                }
+            }
+        }
+
+        return bestPos;
+    }
+
+    private static <T> T runOnServerThread(ServerLevel level, java.util.concurrent.Callable<T> callable) {
+        CompletableFuture<T> future = new CompletableFuture<>();
+        level.getServer().execute(() -> {
+            try {
+                future.complete(callable.call());
+            } catch (Exception e) {
+                future.completeExceptionally(e);
+            }
+        });
+        return future.join();
     private record BiomeVariantResult(String biomeId, int distance) {
     private static void sendRingProgressUpdate(ServerLevel level, CommandSourceStack source, int scanRadius, int step, int totalSteps, long startedAtMs) {
         int progressPercent = Mth.clamp((int) Math.round((step * 100.0D) / totalSteps), 1, 100);
