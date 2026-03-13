@@ -62,6 +62,10 @@ public final class LocateTeleportHandler {
         return findSurfaceSafePosition(level, targetPos);
     }
 
+    public static BlockPos findSurfaceSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
+        return findSurfaceSafePosition(level, targetPos);
+    }
+
     private static BlockPos findSurfaceSafePosition(ServerLevel level, BlockPos targetPos) {
         if (isSafePosition(level, targetPos)) {
             return targetPos;
