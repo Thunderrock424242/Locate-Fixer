@@ -1,6 +1,8 @@
 package com.thunder.locatefixer;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.thunder.locatefixer.command.BaseHomeCommand;
+import com.thunder.locatefixer.command.LocateBaseCommand;
 import com.thunder.locatefixer.command.LocateFixerSchematicCommand;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.integration.WorldEditHook;
@@ -68,6 +70,8 @@ public class locatefixer {
     public void onRegisterCommands(RegisterCommandsEvent event) {
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
         LocateFixerSchematicCommand.register(dispatcher);
+        BaseHomeCommand.register(dispatcher);
+        LocateBaseCommand.register(dispatcher);
     }
 
     private void onConfigLoad(ModConfigEvent.Loading event) {
