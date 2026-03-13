@@ -17,9 +17,9 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.Structure;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -104,6 +104,7 @@ public class AsyncLocateHandler {
                         source.sendFailure(Component.literal("❌ Structure not found within " + settings.maxRadius() + " blocks.")));
 
             } catch (Exception e) {
+                LOGGER.error("[LocateFixer] Unexpected error while locating structure", e);
                 level.getServer().execute(() ->
                         source.sendFailure(Component.literal("LocateFixer error (structure): " + e.getMessage())));
             }
@@ -163,6 +164,7 @@ public class AsyncLocateHandler {
                         source.sendFailure(Component.literal("❌ Biome not found within " + settings.maxRadius() + " blocks.")));
 
             } catch (Exception e) {
+                LOGGER.error("[LocateFixer] Unexpected error while locating biome", e);
                 level.getServer().execute(() ->
                         source.sendFailure(Component.literal("LocateFixer error (biome): " + e.getMessage())));
             }
@@ -196,6 +198,7 @@ public class AsyncLocateHandler {
                 }
 
             } catch (Exception e) {
+                LOGGER.error("[LocateFixer] Unexpected error while locating POI", e);
                 level.getServer().execute(() ->
                         source.sendFailure(Component.literal("LocateFixer error (POI): " + e.getMessage())));
             }
@@ -224,7 +227,7 @@ public class AsyncLocateHandler {
                 return i;
             }
         }
-        return 0;
+        return rings.length - 1;
     }
 
     private static int computeSampleRadius(int searchRadius, LocateSettings settings) {
@@ -293,8 +296,7 @@ public class AsyncLocateHandler {
                 ringList.add(ring);
             }
         }
-        Collections.sort(ringList);
-        int[] rings = ringList.stream().mapToInt(Integer::intValue).toArray();
+        int[] rings = new TreeSet<>(ringList).stream().mapToInt(Integer::intValue).toArray();
 
         long cacheDurationMs = TimeUnit.MINUTES.toMillis(Math.max(1L, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheDurationMinutes.get()));
         int cacheGranularity = Math.max(1, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheChunkGranularity.get());
@@ -343,4 +345,3 @@ public class AsyncLocateHandler {
         }
     }
 }
-
