@@ -1,7 +1,6 @@
 package com.thunder.locatefixer;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.thunder.locatefixer.command.LocateFixerNearestCommand;
 import com.thunder.locatefixer.command.LocateFixerBlockCommand;
 import com.thunder.locatefixer.command.LocateFixerLastDeathCommand;
 import com.thunder.locatefixer.command.BaseHomeCommand;
@@ -74,7 +73,6 @@ public class locatefixer {
     public void onRegisterCommands(RegisterCommandsEvent event) {
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
         LocateFixerSchematicCommand.register(dispatcher);
-        LocateFixerNearestCommand.register(dispatcher);
         LocateFixerBlockCommand.register(dispatcher);
         LocateDimensionCommand.register(dispatcher);
         LocateFixerLastDeathCommand.register(dispatcher);

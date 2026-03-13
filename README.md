@@ -6,7 +6,7 @@ Locate Fixer is a lightweight quality-of-life mod for NeoForge 1.21.1 that makes
 - **Escalating search radii.** Locate rings climb from 6,400 blocks up to 256,000 blocks, so far-flung structures and modded biomes are actually discoverable.
 - **Async locate workers.** Scans run in a background thread pool while the main server thread stays responsive and keeps players moving.
 - **Smart caching.** Recently found structures and biomes are cached and instantly reused for nearby requests, saving repeated scans.
-- **Nearest X mode (new command).** Use `/locatex structure <namespace:id> <count>` or `/locatex biome <namespace:id> <count>` to list multiple closest matches instead of a single locate hit.
+- **Nearest X mode (integrated into `/locate`).** Use `/locate nearest structure <count>` or `/locate nearest biome <count>` to list multiple closest matches instead of a single locate hit.
 - **Safer teleports.** `/tp` to a locate result preloads the destination chunks, shows a 5‑second countdown, and only moves the player once everything is ready.
 - **Schematic helpers.** `/locate schematic <name>` hooks into the WorldEdit `config/worldedit/schematics` folder so custom builds are easy to revisit.
 
@@ -25,7 +25,7 @@ Changes can be reloaded on the fly with standard NeoForge config reloads—no re
 ## Usage
 1. Install Locate Fixer on the server (optional but recommended on clients for consistent chat messages).
 2. Run `/locate` or `/locate biome` as usual. Progress messages show which radius is currently scanning.
-3. For multiple nearest matches, use `/locatex structure <namespace:id> <count>` or `/locatex biome <namespace:id> <count>`.
+3. For multiple nearest matches, use `/locate nearest structure <count>` or `/locate nearest biome <count>`.
 4. Use `/tp` immediately after; the mod preloads the target area and teleports you safely once it’s chunk-loaded.
 5. Drop `.schem` files into `config/worldedit/schematics/` to make them discoverable via `/locate schematic <name>`.
 
