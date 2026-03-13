@@ -7,6 +7,7 @@ import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.commands.LocateCommand;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.ai.village.poi.PoiType;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import org.spongepowered.asm.mixin.Mixin;
@@ -43,4 +44,18 @@ public class LocateCommandMixin {
         AsyncLocateHandler.locateBiomeAsync(source, biome, origin, level);
         cir.setReturnValue(1); // fake return — actual logic runs async
     }
+
+    @Inject(method = "locatePoi", at = @At("HEAD"), cancellable = true)
+    private static void locatefix$asyncLocatePoi(
+            CommandSourceStack source,
+            ResourceOrTagArgument.Result<PoiType> poiType,
+            CallbackInfoReturnable<Integer> cir
+    ) {
+        ServerLevel level = source.getLevel();
+        BlockPos origin = BlockPos.containing(source.getPosition());
+
+        AsyncLocateHandler.locatePoiAsync(source, poiType, origin, level);
+        cir.setReturnValue(1); // fake return — actual logic runs async
+    }
+
 }
