@@ -7,6 +7,7 @@
     "LocateCommandAccessor",
     "LocateCommandInvoker",
     "LocateCommandMixin",
+    "LocateVariantCommandMixin",
     "TeleportCommandMixin",
     "accessor.TeleportCommandLookAtAccessor"
   ],
