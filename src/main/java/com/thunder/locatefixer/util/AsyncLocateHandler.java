@@ -288,8 +288,9 @@ public class AsyncLocateHandler {
                     }
                     source.sendSuccess(() -> Component.literal("✅ Nearest " + nearest.size() + " results for structure '" + structureId + "':"), false);
                     for (int i = 0; i < nearest.size(); i++) {
+                        final int rank = i + 1;
                         LocatedEntry entry = nearest.get(i);
-                        source.sendSuccess(() -> Component.literal((i + 1) + ") " + entry.distance() + " blocks at ("
+                        source.sendSuccess(() -> Component.literal(rank + ") " + entry.distance() + " blocks at ("
                                 + entry.pos().getX() + " " + entry.pos().getY() + " " + entry.pos().getZ() + ")"
                                 + " [" + entry.name() + "]"), false);
                     }
@@ -361,8 +362,9 @@ public class AsyncLocateHandler {
                     }
                     source.sendSuccess(() -> Component.literal("✅ Nearest " + nearest.size() + " results for biome '" + biomeId + "':"), false);
                     for (int i = 0; i < nearest.size(); i++) {
+                        final int rank = i + 1;
                         LocatedEntry entry = nearest.get(i);
-                        source.sendSuccess(() -> Component.literal((i + 1) + ") " + entry.distance() + " blocks at ("
+                        source.sendSuccess(() -> Component.literal(rank + ") " + entry.distance() + " blocks at ("
                                 + entry.pos().getX() + " " + entry.pos().getY() + " " + entry.pos().getZ() + ")"
                                 + " [" + entry.name() + "]"), false);
                     }
