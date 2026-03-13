@@ -1,7 +1,6 @@
 package com.thunder.locatefixer.mixin;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.tree.CommandNode;
@@ -42,29 +41,8 @@ public class LocateVariantCommandMixin {
                             String query = StringArgumentType.getString(command, "query");
                             AsyncLocateHandler.locateBiomeVariantsAsync(source, query, origin, level);
                             return 1;
-                        }));
+        }));
 
         literalLocateNode.addChild(biomeVariants.build());
-
-        if (locateNode.getChild("nearest") != null) {
-            return;
-        }
-
-        LiteralArgumentBuilder<CommandSourceStack> nearest = Commands.literal("nearest")
-                .then(Commands.literal("structure")
-                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 10))
-                                .executes(command -> {
-                                    int count = IntegerArgumentType.getInteger(command, "count");
-                                    return AsyncLocateHandler.locateNearestStructuresAsync(command.getSource(), count);
-                                })))
-                .then(Commands.literal("biome")
-                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 10))
-                                .executes(command -> {
-                                    int count = IntegerArgumentType.getInteger(command, "count");
-                                    return AsyncLocateHandler.locateNearestBiomesAsync(command.getSource(), count);
-                                })));
-
-
-        literalLocateNode.addChild(nearest.build());
     }
 }
