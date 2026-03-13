@@ -35,9 +35,18 @@ import static com.thunder.locatefixer.locatefixer.LOGGER;
 public class AsyncLocateHandler {
 
     private static final int[] DEFAULT_RINGS = {6400, 16000, 32000, 64000, 128000, 256000};
+    private static final LocateSettings DEFAULT_SETTINGS = new LocateSettings(
+            DEFAULT_RINGS,
+            1024,
+            TimeUnit.MINUTES.toMillis(10),
+            8,
+            2,
+            1.0D,
+            1.0D
+    );
     private static final ThreadFactory THREAD_FACTORY = buildThreadFactory();
 
-    private static volatile LocateSettings SETTINGS = loadSettings();
+    private static volatile LocateSettings SETTINGS = DEFAULT_SETTINGS;
     private static volatile ExecutorService LOCATE_EXECUTOR = buildExecutor(SETTINGS.threadCount());
 
     private static final ConcurrentMap<LocateCacheKey, LocateCacheEntry<Structure>> STRUCTURE_CACHE = new ConcurrentHashMap<>();
@@ -294,28 +303,33 @@ public class AsyncLocateHandler {
     }
 
     private static LocateSettings loadSettings() {
-        List<? extends Integer> configuredRings = com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateRings.get();
-        List<Integer> ringList = new ArrayList<>();
-        for (Integer ring : configuredRings) {
-            if (ring != null && ring > 0) {
-                ringList.add(ring);
+        try {
+            List<? extends Integer> configuredRings = com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateRings.get();
+            List<Integer> ringList = new ArrayList<>();
+            for (Integer ring : configuredRings) {
+                if (ring != null && ring > 0) {
+                    ringList.add(ring);
+                }
             }
-        }
-        if (ringList.isEmpty()) {
-            for (int ring : DEFAULT_RINGS) {
-                ringList.add(ring);
+            if (ringList.isEmpty()) {
+                for (int ring : DEFAULT_RINGS) {
+                    ringList.add(ring);
+                }
             }
+            int[] rings = new TreeSet<>(ringList).stream().mapToInt(Integer::intValue).toArray();
+
+            long cacheDurationMs = TimeUnit.MINUTES.toMillis(Math.max(1L, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheDurationMinutes.get()));
+            int cacheGranularity = Math.max(1, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheChunkGranularity.get());
+            int poiRadius = Math.max(16, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.poiSearchRadius.get());
+            int threadCount = Math.max(1, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateThreadCount.get());
+            double radiusMultiplier = Math.max(1.0D, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.biomeSampleRadiusMultiplier.get());
+            double stepMultiplier = Math.max(1.0D, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.biomeSampleStepMultiplier.get());
+
+            return new LocateSettings(rings, poiRadius, cacheDurationMs, cacheGranularity, threadCount, radiusMultiplier, stepMultiplier);
+        } catch (IllegalStateException ex) {
+            LOGGER.debug("[LocateFixer] Config not ready yet, using default locate settings.");
+            return DEFAULT_SETTINGS;
         }
-        int[] rings = new TreeSet<>(ringList).stream().mapToInt(Integer::intValue).toArray();
-
-        long cacheDurationMs = TimeUnit.MINUTES.toMillis(Math.max(1L, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheDurationMinutes.get()));
-        int cacheGranularity = Math.max(1, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheChunkGranularity.get());
-        int poiRadius = Math.max(16, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.poiSearchRadius.get());
-        int threadCount = Math.max(1, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateThreadCount.get());
-        double radiusMultiplier = Math.max(1.0D, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.biomeSampleRadiusMultiplier.get());
-        double stepMultiplier = Math.max(1.0D, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.biomeSampleStepMultiplier.get());
-
-        return new LocateSettings(rings, poiRadius, cacheDurationMs, cacheGranularity, threadCount, radiusMultiplier, stepMultiplier);
     }
 
     private static ExecutorService buildExecutor(int threadCount) {
