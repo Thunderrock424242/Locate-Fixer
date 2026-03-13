@@ -97,11 +97,13 @@ public class AsyncLocateHandler {
                         .orElseThrow(() -> LocateCommandAccessor.getStructureInvalid().create(structure.asPrintable()));
 
                 int startIndex = findStartIndex(cacheEntry, origin, rings);
+                int totalSteps = Math.max(1, rings.length - startIndex);
+                long startedAt = System.currentTimeMillis();
 
                 for (int i = startIndex; i < rings.length; i++) {
                     int scanRadius = rings[i];
-                    level.getServer().execute(() -> source.sendSuccess(() ->
-                            Component.literal("🔍 Scanning up to " + scanRadius + " blocks..."), false));
+                    int step = (i - startIndex) + 1;
+                    sendRingProgressUpdate(level, source, scanRadius, step, totalSteps, startedAt);
                     LOGGER.info("[LocateFixer] Scanning for structure up to {} blocks", scanRadius);
 
                     Pair<BlockPos, Holder<Structure>> result = level.getChunkSource().getGenerator()
@@ -160,11 +162,13 @@ public class AsyncLocateHandler {
                 }
 
                 int startIndex = findStartIndex(cacheEntry, origin, rings);
+                int totalSteps = Math.max(1, rings.length - startIndex);
+                long startedAt = System.currentTimeMillis();
 
                 for (int i = startIndex; i < rings.length; i++) {
                     int scanRadius = rings[i];
-                    level.getServer().execute(() -> source.sendSuccess(() ->
-                            Component.literal("🔍 Scanning up to " + scanRadius + " blocks..."), false));
+                    int step = (i - startIndex) + 1;
+                    sendRingProgressUpdate(level, source, scanRadius, step, totalSteps, startedAt);
                     LOGGER.info("[LocateFixer] Scanning for biome up to {} blocks", scanRadius);
 
                     Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(biome, origin, scanRadius, computeSampleRadius(scanRadius, settings), computeSampleStep(scanRadius, settings));
@@ -199,7 +203,7 @@ public class AsyncLocateHandler {
                 int poiRadius = settings.poiSearchRadius();
                 LOGGER.info("[LocateFixer] Scanning for POI within {} blocks", poiRadius);
                 level.getServer().execute(() -> source.sendSuccess(() ->
-                        Component.literal("🔍 Scanning for POI up to " + poiRadius + " blocks..."), false));
+                        Component.literal("🔍 Searching... radius " + poiRadius + " blocks (50%) ⏳"), false));
 
                 Optional<Pair<Holder<PoiType>, BlockPos>> result = level.getPoiManager()
                         .findClosestWithType(poiType, origin, poiRadius, PoiManager.Occupancy.ANY);
@@ -209,9 +213,10 @@ public class AsyncLocateHandler {
                     BlockPos pos = found.getSecond();
                     Holder<PoiType> holder = found.getFirst();
 
-                    level.getServer().execute(() ->
-                            LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, true)
-                    );
+                    level.getServer().execute(() -> {
+                            source.sendSuccess(() -> Component.literal("✅ Search completed (100%)."), false);
+                            LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, true);
+                    });
                 } else {
                     level.getServer().execute(() ->
                             source.sendFailure(Component.literal("❌ POI not found within " + poiRadius + " blocks."))
@@ -356,6 +361,16 @@ public class AsyncLocateHandler {
     }
 
     private record BiomeVariantResult(String biomeId, int distance) {
+    private static void sendRingProgressUpdate(ServerLevel level, CommandSourceStack source, int scanRadius, int step, int totalSteps, long startedAtMs) {
+        int progressPercent = Mth.clamp((int) Math.round((step * 100.0D) / totalSteps), 1, 100);
+        long elapsedMs = Math.max(1L, System.currentTimeMillis() - startedAtMs);
+        long avgStepMs = elapsedMs / Math.max(1, step);
+        long remainingMs = Math.max(0L, avgStepMs * (totalSteps - step));
+        long remainingSeconds = TimeUnit.MILLISECONDS.toSeconds(remainingMs);
+        String etaText = remainingSeconds > 0 ? " ⏳ ~" + remainingSeconds + "s remaining" : "";
+
+        level.getServer().execute(() -> source.sendSuccess(() ->
+                Component.literal("🔍 Searching... radius " + scanRadius + " blocks (" + progressPercent + "%)" + etaText), false));
     }
 
     public static void reloadConfig() {
