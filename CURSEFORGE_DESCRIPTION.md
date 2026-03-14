@@ -6,8 +6,20 @@ Locate Fixer is a lightweight quality-of-life mod for NeoForge 1.21.1 that makes
 - **Escalating search radii.** Locate rings climb from 6,400 blocks up to 256,000 blocks, so far-flung structures and modded biomes are actually discoverable.
 - **Async locate workers.** Scans run in a background thread pool while the main server thread stays responsive and keeps players moving.
 - **Smart caching.** Recently found structures and biomes are cached and instantly reused for nearby requests, saving repeated scans.
-- **Safer teleports.** `/tp` to a locate result preloads the destination chunks, shows a 5‑second countdown, and only moves the player once everything is ready.
+- **Nearest X mode.** Use `/locatex structure <namespace:id> <count>` or `/locatex biome <namespace:id> <count>` to list multiple closest matches instead of a single locate hit.
+- **Base and home tracking.** Players can save named spots with `/base set <name>` / `/home set <name>` and find them later with `/locate base <name>` or `/locate home <name>` (including shared lookups with `/locate player <player> base|home`).
+- **Last death recall.** `/locate last death` returns your latest death coordinates with clickable teleport suggestions, including cross-dimension guidance.
+- **Dimension and block helpers.** `/locate dimension <dimension>` picks and teleports to a random biome in the target dimension, while `/locate block <namespace:block>` scans loaded chunks for matching blocks.
+- **Safer teleports.** `/tp` to a locate result preloads the destination chunks, shows a 5-second countdown, and only moves the player once everything is ready.
 - **Schematic helpers.** `/locate schematic <name>` hooks into the WorldEdit `config/worldedit/schematics` folder so custom builds are easy to revisit.
+
+## Locate Fixer vs Async Locator Mods
+If you have seen mods like "Async Locator" (or similarly named async locate utilities), the goals overlap, but Locate Fixer focuses on a broader command workflow:
+
+- **Not just async `/locate`.** Locate Fixer improves locate reliability with configurable rings and cache reuse, then ties results into safer follow-up actions.
+- **Teleport safety built in.** `/tp` to locate results is chunk-preloaded with a short countdown before movement.
+- **More than structures/biomes.** Includes `/locatex` nearest-multiple results plus helpers for bases/homes, last death, block lookups, dimensions, and schematics.
+- **Server-ops quality of life.** Designed for pack/server administration where discoverability, chat feedback, and predictable command behavior matter.
 
 ## Configuration
 Locate Fixer is configurable through the generated `config/locatefixer-server.toml` file.
@@ -24,8 +36,10 @@ Changes can be reloaded on the fly with standard NeoForge config reloads—no re
 ## Usage
 1. Install Locate Fixer on the server (optional but recommended on clients for consistent chat messages).
 2. Run `/locate` or `/locate biome` as usual. Progress messages show which radius is currently scanning.
-3. Use `/tp` immediately after; the mod preloads the target area and teleports you safely once it’s chunk-loaded.
-4. Drop `.schem` files into `config/worldedit/schematics/` to make them discoverable via `/locate schematic <name>`.
+3. For multiple nearest matches, use `/locatex structure <namespace:id> <count>` or `/locatex biome <namespace:id> <count>`.
+4. Save important spots with `/base set <name>` or `/home set <name>`, then retrieve them with `/locate base <name>` / `/locate home <name>`.
+5. Use utility commands like `/locate last death`, `/locate dimension <dimension>`, `/locate block <namespace:block>`, and `/locate schematic <name>` when needed.
+6. Use `/tp` immediately after locate results; the mod preloads the target area and teleports you safely once it's chunk-loaded.
 
 ## Compatibility
 - NeoForge 1.21.1
