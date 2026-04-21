@@ -16,21 +16,8 @@ import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.Structure;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.TreeSet;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.thunder.locatefixer.locatefixer.LOGGER;
@@ -39,6 +26,21 @@ public class AsyncLocateHandler {
 
     private static final int[] DEFAULT_RINGS = {6400, 16000, 32000, 64000, 128000, 256000};
     private static final int CACHE_MAX_ENTRIES = 512;
+
+    // Pre-computed unit-circle samples for createAnchors — avoids repeated sin/cos per call.
+    // We pre-build for the maximum sample count (32) and slice as needed.
+    private static final int MAX_ANCHOR_SAMPLES = 32;
+    private static final double[] ANCHOR_COS = new double[MAX_ANCHOR_SAMPLES];
+    private static final double[] ANCHOR_SIN = new double[MAX_ANCHOR_SAMPLES];
+
+    static {
+        for (int i = 0; i < MAX_ANCHOR_SAMPLES; i++) {
+            double angle = (Math.PI * 2.0 * i) / MAX_ANCHOR_SAMPLES;
+            ANCHOR_COS[i] = Math.cos(angle);
+            ANCHOR_SIN[i] = Math.sin(angle);
+        }
+    }
+
     private static final LocateSettings DEFAULT_SETTINGS = new LocateSettings(
             DEFAULT_RINGS,
             1024,
@@ -56,6 +58,14 @@ public class AsyncLocateHandler {
     private static final ConcurrentMap<LocateCacheKey, LocateCacheEntry<Structure>> STRUCTURE_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentMap<LocateCacheKey, LocateCacheEntry<Biome>> BIOME_CACHE = new ConcurrentHashMap<>();
 
+    // Tracks players with an in-flight locate request so they can't spam the executor.
+    // Uses the player name (String) to avoid holding a reference to the player object.
+    private static final Set<String> IN_FLIGHT_PLAYERS = ConcurrentHashMap.newKeySet();
+
+    // ---------------------------------------------------------------------------
+    // Public API
+    // ---------------------------------------------------------------------------
+
     public static void runAsyncTask(String taskName, Runnable task) {
         CompletableFuture.runAsync(() -> {
             try {
@@ -67,6 +77,9 @@ public class AsyncLocateHandler {
     }
 
     public static void locateStructureAsync(CommandSourceStack source, ResourceOrTagKeyArgument.Result<Structure> structure, BlockPos origin, ServerLevel level) {
+        String playerKey = playerKey(source);
+        if (!acquireInFlight(source, playerKey)) return;
+
         final LocateSettings settings = SETTINGS;
         CompletableFuture.runAsync(() -> {
             try {
@@ -82,8 +95,7 @@ public class AsyncLocateHandler {
 
                 if (cacheEntry != null) {
                     BlockPos cachedPos = cacheEntry.pos();
-                    int distance = horizontalDistance(origin, cachedPos);
-                    if (distance <= settings.maxRadius()) {
+                    if (horizontalDistanceSq(origin, cachedPos) <= (long) settings.maxRadius() * settings.maxRadius()) {
                         Holder<Structure> holder = cacheEntry.holder();
                         level.getServer().execute(() -> {
                             BlockPos surfacePos = structureTeleportTarget(level, cachedPos);
@@ -132,11 +144,16 @@ public class AsyncLocateHandler {
                 LOGGER.error("[LocateFixer] Unexpected error while locating structure", e);
                 level.getServer().execute(() ->
                         source.sendFailure(Component.literal("LocateFixer error (structure): " + e.getMessage())));
+            } finally {
+                IN_FLIGHT_PLAYERS.remove(playerKey);
             }
         }, LOCATE_EXECUTOR);
     }
 
     public static void locateBiomeAsync(CommandSourceStack source, ResourceOrTagArgument.Result<Biome> biome, BlockPos origin, ServerLevel level) {
+        String playerKey = playerKey(source);
+        if (!acquireInFlight(source, playerKey)) return;
+
         final LocateSettings settings = SETTINGS;
         CompletableFuture.runAsync(() -> {
             try {
@@ -152,8 +169,7 @@ public class AsyncLocateHandler {
 
                 if (cacheEntry != null) {
                     BlockPos cachedPos = cacheEntry.pos();
-                    int distance = horizontalDistance(origin, cachedPos);
-                    if (distance <= settings.maxRadius()) {
+                    if (horizontalDistanceSq(origin, cachedPos) <= (long) settings.maxRadius() * settings.maxRadius()) {
                         Holder<Biome> holder = cacheEntry.holder();
                         level.getServer().execute(() -> {
                             source.sendSuccess(() -> Component.literal("✅ Using cached locate result."), false);
@@ -173,7 +189,8 @@ public class AsyncLocateHandler {
                     sendRingProgressUpdate(level, source, scanRadius, step, totalSteps, startedAt);
                     LOGGER.info("[LocateFixer] Scanning for biome up to {} blocks", scanRadius);
 
-                    Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(biome, origin, scanRadius, computeSampleRadius(scanRadius, settings), computeSampleStep(scanRadius, settings));
+                    Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(biome, origin, scanRadius,
+                            computeSampleRadius(scanRadius, settings), computeSampleStep(scanRadius, settings));
                     if (result != null) {
                         BlockPos pos = result.getFirst();
                         Holder<Biome> holder = result.getSecond();
@@ -194,18 +211,23 @@ public class AsyncLocateHandler {
                 LOGGER.error("[LocateFixer] Unexpected error while locating biome", e);
                 level.getServer().execute(() ->
                         source.sendFailure(Component.literal("LocateFixer error (biome): " + e.getMessage())));
+            } finally {
+                IN_FLIGHT_PLAYERS.remove(playerKey);
             }
         }, LOCATE_EXECUTOR);
     }
 
     public static void locatePoiAsync(CommandSourceStack source, ResourceOrTagArgument.Result<PoiType> poiType, BlockPos origin, ServerLevel level) {
+        String playerKey = playerKey(source);
+        if (!acquireInFlight(source, playerKey)) return;
+
         final LocateSettings settings = SETTINGS;
         CompletableFuture.runAsync(() -> {
             try {
                 int poiRadius = settings.poiSearchRadius();
                 LOGGER.info("[LocateFixer] Scanning for POI within {} blocks", poiRadius);
                 level.getServer().execute(() -> source.sendSuccess(() ->
-                        Component.literal("🔍 Searching... radius " + poiRadius + " blocks (50%) ⏳"), false));
+                        Component.literal("🔍 Searching... radius " + poiRadius + " blocks ⏳"), false));
 
                 Optional<Pair<Holder<PoiType>, BlockPos>> result = level.getPoiManager()
                         .findClosestWithType(poiType, origin, poiRadius, PoiManager.Occupancy.ANY);
@@ -216,8 +238,8 @@ public class AsyncLocateHandler {
                     Holder<PoiType> holder = found.getFirst();
 
                     level.getServer().execute(() -> {
-                            source.sendSuccess(() -> Component.literal("✅ Search completed (100%)."), false);
-                            LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, true);
+                        source.sendSuccess(() -> Component.literal("✅ Search completed."), false);
+                        LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, true);
                     });
                 } else {
                     level.getServer().execute(() ->
@@ -229,6 +251,8 @@ public class AsyncLocateHandler {
                 LOGGER.error("[LocateFixer] Unexpected error while locating POI", e);
                 level.getServer().execute(() ->
                         source.sendFailure(Component.literal("LocateFixer error (POI): " + e.getMessage())));
+            } finally {
+                IN_FLIGHT_PLAYERS.remove(playerKey);
             }
         }, LOCATE_EXECUTOR);
     }
@@ -237,6 +261,9 @@ public class AsyncLocateHandler {
         ServerLevel level = source.getLevel();
         BlockPos origin = BlockPos.containing(source.getPosition());
         final LocateSettings settings = SETTINGS;
+
+        String playerKey = playerKey(source);
+        if (!acquireInFlight(source, playerKey)) return 0;
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -247,33 +274,44 @@ public class AsyncLocateHandler {
                     return;
                 }
 
+                // Build the HolderSet once outside the loop — it never changes
                 HolderSet<Structure> holders = HolderSet.direct(allStructures);
-                List<LocatedEntry> found = new ArrayList<>();
-                Set<Long> seen = new HashSet<>();
+
+                // Deduplicate by (structureName + coarse grid cell) so we don't list the
+                // same structure type twice from nearby positions.
+                // Key: structureRegistryName + coarse-X + coarse-Z (128-block grid)
+                Map<String, LocatedEntry> bestByType = new LinkedHashMap<>();
+                Set<Long> seenPositions = new HashSet<>();
 
                 for (int ring : settings.rings()) {
+                    final int ringFinal = ring;
                     level.getServer().execute(() -> source.sendSuccess(() ->
-                            Component.literal("🔍 Scanning for nearest " + count + " structures up to " + ring + " blocks..."), false));
+                            Component.literal("🔍 Scanning for nearest " + count + " structures up to " + ringFinal + " blocks..."), false));
+
                     for (BlockPos anchor : createAnchors(origin, ring)) {
                         Pair<BlockPos, Holder<Structure>> result = level.getChunkSource().getGenerator()
                                 .findNearestMapStructure(level, holders, anchor, ring, false);
-                        if (result == null) {
-                            continue;
-                        }
+                        if (result == null) continue;
 
                         BlockPos pos = result.getFirst();
-                        if (seen.add(pos.asLong())) {
-                            found.add(new LocatedEntry(pos, result.getSecond().getRegisteredName(), horizontalDistance(origin, pos)));
-                        }
+                        long posKey = pos.asLong();
+                        if (!seenPositions.add(posKey)) continue;
+
+                        String name = result.getSecond().getRegisteredName();
+                        int dist = horizontalDistance(origin, pos);
+
+                        // Keep closest result per structure type
+                        bestByType.merge(name, new LocatedEntry(pos, name, dist),
+                                (existing, candidate) -> candidate.distance() < existing.distance() ? candidate : existing);
                     }
 
-                    if (found.size() >= count) {
-                        break;
-                    }
+                    if (bestByType.size() >= count) break;
                 }
 
-                found.sort(Comparator.comparingInt(LocatedEntry::distance));
-                List<LocatedEntry> nearest = found.stream().limit(count).toList();
+                List<LocatedEntry> nearest = bestByType.values().stream()
+                        .sorted(Comparator.comparingInt(LocatedEntry::distance))
+                        .limit(count)
+                        .toList();
 
                 level.getServer().execute(() -> {
                     if (nearest.isEmpty()) {
@@ -292,6 +330,8 @@ public class AsyncLocateHandler {
             } catch (Exception e) {
                 LOGGER.error("[LocateFixer] Unexpected error while locating nearest structures", e);
                 level.getServer().execute(() -> source.sendFailure(Component.literal("LocateFixer error (structure multi): " + e.getMessage())));
+            } finally {
+                IN_FLIGHT_PLAYERS.remove(playerKey);
             }
         }, LOCATE_EXECUTOR);
 
@@ -303,35 +343,50 @@ public class AsyncLocateHandler {
         BlockPos origin = BlockPos.containing(source.getPosition());
         final LocateSettings settings = SETTINGS;
 
+        String playerKey = playerKey(source);
+        if (!acquireInFlight(source, playerKey)) return 0;
+
         CompletableFuture.runAsync(() -> {
             try {
-                List<LocatedEntry> found = new ArrayList<>();
-                Set<Long> seen = new HashSet<>();
+                // Collect all biomes registered in this dimension so we can search for each
+                // one specifically, rather than matching "any biome" from every anchor point
+                // (which produces many duplicate results of the same nearest biome).
+                List<Holder<Biome>> allBiomes = level.getChunkSource()
+                        .getGenerator()
+                        .getBiomeSource()
+                        .possibleBiomes()
+                        .stream()
+                        .toList();
+
+                Map<String, LocatedEntry> bestByBiome = new LinkedHashMap<>();
 
                 for (int ring : settings.rings()) {
                     int sampleRadius = computeSampleRadius(ring, settings);
                     int step = computeSampleStep(ring, settings);
+                    final int ringFinal = ring;
                     level.getServer().execute(() -> source.sendSuccess(() ->
-                            Component.literal("🔍 Sampling for nearest " + count + " biomes up to " + ring + " blocks..."), false));
+                            Component.literal("🔍 Sampling for nearest " + count + " biomes up to " + ringFinal + " blocks..."), false));
 
-                    for (BlockPos anchor : createAnchors(origin, ring)) {
-                        Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(holder -> true, anchor, ring, sampleRadius, step);
-                        if (result == null) {
-                            continue;
-                        }
+                    for (Holder<Biome> targetBiome : allBiomes) {
+                        String biomeName = targetBiome.getRegisteredName();
+                        if (bestByBiome.containsKey(biomeName)) continue; // already found one closer
+
+                        Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(
+                                h -> h.is(targetBiome), origin, ring, sampleRadius, step);
+                        if (result == null) continue;
+
                         BlockPos pos = result.getFirst();
-                        if (seen.add(pos.asLong())) {
-                            found.add(new LocatedEntry(pos, result.getSecond().getRegisteredName(), horizontalDistance(origin, pos)));
-                        }
+                        int dist = horizontalDistance(origin, pos);
+                        bestByBiome.put(biomeName, new LocatedEntry(pos, biomeName, dist));
                     }
 
-                    if (found.size() >= count) {
-                        break;
-                    }
+                    if (bestByBiome.size() >= count) break;
                 }
 
-                found.sort(Comparator.comparingInt(LocatedEntry::distance));
-                List<LocatedEntry> nearest = found.stream().limit(count).toList();
+                List<LocatedEntry> nearest = bestByBiome.values().stream()
+                        .sorted(Comparator.comparingInt(LocatedEntry::distance))
+                        .limit(count)
+                        .toList();
 
                 level.getServer().execute(() -> {
                     if (nearest.isEmpty()) {
@@ -350,201 +405,236 @@ public class AsyncLocateHandler {
             } catch (Exception e) {
                 LOGGER.error("[LocateFixer] Unexpected error while locating nearest biomes", e);
                 level.getServer().execute(() -> source.sendFailure(Component.literal("LocateFixer error (biome multi): " + e.getMessage())));
+            } finally {
+                IN_FLIGHT_PLAYERS.remove(playerKey);
             }
         }, LOCATE_EXECUTOR);
 
         return count;
     }
 
+    // ---------------------------------------------------------------------------
+    // Internal helpers
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Returns a stable key identifying the requesting entity (player name or "server").
+     */
+    private static String playerKey(CommandSourceStack source) {
+        return source.getTextName();
+    }
+
+    /**
+     * Attempts to register the player as having an in-flight request.
+     * Returns false (and sends a failure message) if they already have one.
+     */
+    private static boolean acquireInFlight(CommandSourceStack source, String key) {
+        if (!IN_FLIGHT_PLAYERS.add(key)) {
+            source.sendFailure(Component.literal("⏳ You already have a locate search in progress. Please wait for it to finish."));
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Creates anchor positions evenly distributed on a ring.
+     * Uses pre-computed sin/cos table — no transcendental calls at runtime.
+     */
     private static List<BlockPos> createAnchors(BlockPos origin, int radius) {
-        List<BlockPos> anchors = new ArrayList<>();
+        int samples = Math.max(8, Math.min(MAX_ANCHOR_SAMPLES, radius / 4000 + 8));
+        List<BlockPos> anchors = new ArrayList<>(samples + 1);
         anchors.add(origin);
-        int samples = Math.max(8, Math.min(32, radius / 4000 + 8));
+        // Stride through the pre-computed table to fit the requested sample count
+        int stride = MAX_ANCHOR_SAMPLES / samples;
         for (int i = 0; i < samples; i++) {
-            double angle = (Math.PI * 2D * i) / samples;
-            int x = origin.getX() + (int) Math.round(Math.cos(angle) * radius);
-            int z = origin.getZ() + (int) Math.round(Math.sin(angle) * radius);
+            int tableIdx = (i * stride) % MAX_ANCHOR_SAMPLES;
+            int x = origin.getX() + (int) Math.round(ANCHOR_COS[tableIdx] * radius);
+            int z = origin.getZ() + (int) Math.round(ANCHOR_SIN[tableIdx] * radius);
             anchors.add(new BlockPos(x, origin.getY(), z));
         }
         return anchors;
     }
 
-        private static <T> LocateCacheEntry<T> getValidCacheEntry(ConcurrentMap<LocateCacheKey, LocateCacheEntry<T>> cache, LocateCacheKey key,
-        long cacheDurationMs) {
-            LocateCacheEntry<T> entry = cache.get(key);
-            if (entry == null) {
-                return null;
-            }
-            if (System.currentTimeMillis() - entry.timestamp() > cacheDurationMs) {
-                cache.remove(key, entry);
-                return null;
-            }
-            return entry;
+    private static <T> LocateCacheEntry<T> getValidCacheEntry(ConcurrentMap<LocateCacheKey, LocateCacheEntry<T>> cache,
+                                                               LocateCacheKey key, long cacheDurationMs) {
+        LocateCacheEntry<T> entry = cache.get(key);
+        if (entry == null) return null;
+        if (System.currentTimeMillis() - entry.timestamp() > cacheDurationMs) {
+            cache.remove(key, entry);
+            return null;
         }
+        return entry;
+    }
 
-        /**
-         * Evicts the oldest entry from the cache if it has grown past CACHE_MAX_ENTRIES.
-         * This prevents unbounded memory growth on long-running servers.
-         */
-        private static <T> void putWithEviction(ConcurrentMap<LocateCacheKey, LocateCacheEntry<T>> cache,
-                                                LocateCacheKey key, LocateCacheEntry<T> entry) {
-            if (cache.size() >= CACHE_MAX_ENTRIES) {
-                cache.entrySet().stream()
-                        .min(java.util.Comparator.comparingLong(e -> e.getValue().timestamp()))
-                        .map(java.util.Map.Entry::getKey)
-                        .ifPresent(cache::remove);
-            }
-            cache.put(key, entry);
-        }
-
-        private static int findStartIndex (LocateCacheEntry < ? > entry, BlockPos origin,int[] rings){
-            if (entry == null) {
-                return 0;
-            }
-            int distance = horizontalDistance(origin, entry.pos());
-            for (int i = 0; i < rings.length; i++) {
-                if (rings[i] >= distance) {
-                    return i;
+    /**
+     * Inserts into a cache with a size cap.  When at capacity, evicts the entry with the
+     * oldest timestamp using a single O(n) pass — called rarely (only on a cache miss
+     * that found a result), so the cost is acceptable.
+     */
+    private static <T> void putWithEviction(ConcurrentMap<LocateCacheKey, LocateCacheEntry<T>> cache,
+                                            LocateCacheKey key, LocateCacheEntry<T> entry) {
+        if (cache.size() >= CACHE_MAX_ENTRIES) {
+            LocateCacheKey oldest = null;
+            long oldestTs = Long.MAX_VALUE;
+            for (Map.Entry<LocateCacheKey, LocateCacheEntry<T>> e : cache.entrySet()) {
+                if (e.getValue().timestamp() < oldestTs) {
+                    oldestTs = e.getValue().timestamp();
+                    oldest = e.getKey();
                 }
             }
-            return rings.length - 1;
+            if (oldest != null) cache.remove(oldest);
         }
+        cache.put(key, entry);
+    }
 
-        private static int computeSampleRadius ( int searchRadius, LocateSettings settings){
-            int computed = Math.max(16, searchRadius / 256);
-            computed = Math.min(96, computed);
-            double scaled = computed * settings.biomeSampleRadiusMultiplier();
-            return (int) Math.max(16, Math.min(256, Math.round(scaled)));
+    private static int findStartIndex(LocateCacheEntry<?> entry, BlockPos origin, int[] rings) {
+        if (entry == null) return 0;
+        int distance = horizontalDistance(origin, entry.pos());
+        for (int i = 0; i < rings.length; i++) {
+            if (rings[i] >= distance) return i;
         }
+        return rings.length - 1;
+    }
 
-        private static int computeSampleStep ( int searchRadius, LocateSettings settings){
-            int computed = Math.max(24, searchRadius / 192);
-            computed = Math.min(128, computed);
-            double scaled = computed * settings.biomeSampleStepMultiplier();
-            return (int) Math.max(16, Math.min(256, Math.round(scaled)));
+    private static int computeSampleRadius(int searchRadius, LocateSettings settings) {
+        int computed = Mth.clamp(searchRadius / 256, 16, 96);
+        return (int) Mth.clamp((float) Math.round(computed * settings.biomeSampleRadiusMultiplier()), 16, 256);
+    }
+
+    private static int computeSampleStep(int searchRadius, LocateSettings settings) {
+        int computed = Mth.clamp(searchRadius / 192, 24, 128);
+        return (int) Mth.clamp((float) Math.round(computed * settings.biomeSampleStepMultiplier()), 16, 256);
+    }
+
+    private static BlockPos structureTeleportTarget(ServerLevel level, BlockPos structurePos) {
+        int x = structurePos.getX();
+        int z = structurePos.getZ();
+        int surfaceY;
+        if (level.hasChunk(SectionPos.blockToSectionCoord(x), SectionPos.blockToSectionCoord(z))) {
+            surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+        } else {
+            surfaceY = structurePos.getY();
         }
+        if (surfaceY <= level.getMinBuildHeight()) {
+            surfaceY = structurePos.getY();
+        }
+        return new BlockPos(x, Mth.clamp(surfaceY, level.getMinBuildHeight(), level.getMaxBuildHeight() - 1), z);
+    }
 
-        private static BlockPos structureTeleportTarget (ServerLevel level, BlockPos structurePos){
-            int x = structurePos.getX();
-            int z = structurePos.getZ();
-            int surfaceY;
-            if (level.hasChunk(SectionPos.blockToSectionCoord(x), SectionPos.blockToSectionCoord(z))) {
-                surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
-            } else {
-                surfaceY = structurePos.getY();
+    /**
+     * Integer horizontal distance (Euclidean XZ). Use {@link #horizontalDistanceSq}
+     * for comparisons against a radius to avoid the sqrt entirely.
+     */
+    private static int horizontalDistance(BlockPos origin, BlockPos target) {
+        long sq = horizontalDistanceSq(origin, target);
+        return (int) Math.sqrt((double) sq);
+    }
+
+    /**
+     * Squared horizontal distance — use this for radius comparisons to skip sqrt.
+     */
+    private static long horizontalDistanceSq(BlockPos origin, BlockPos target) {
+        long dx = target.getX() - origin.getX();
+        long dz = target.getZ() - origin.getZ();
+        return dx * dx + dz * dz;
+    }
+
+    private static void sendRingProgressUpdate(ServerLevel level, CommandSourceStack source,
+                                               int scanRadius, int step, int totalSteps, long startedAtMs) {
+        int progressPercent = Mth.clamp((int) Math.round((step * 100.0D) / totalSteps), 1, 100);
+        long elapsedMs = Math.max(1L, System.currentTimeMillis() - startedAtMs);
+        long avgStepMs = elapsedMs / Math.max(1, step);
+        long remainingMs = Math.max(0L, avgStepMs * (totalSteps - step));
+        long remainingSeconds = TimeUnit.MILLISECONDS.toSeconds(remainingMs);
+        String etaText = remainingSeconds > 0 ? " ⏳ ~" + remainingSeconds + "s remaining" : "";
+
+        level.getServer().execute(() -> source.sendSuccess(() ->
+                Component.literal("🔍 Searching... radius " + scanRadius + " blocks (" + progressPercent + "%)" + etaText), false));
+    }
+
+    public static void reloadConfig() {
+        LocateSettings newSettings = loadSettings();
+        synchronized (AsyncLocateHandler.class) {
+            int previousThreads = SETTINGS.threadCount();
+            SETTINGS = newSettings;
+            if (LOCATE_EXECUTOR == null) {
+                LOCATE_EXECUTOR = buildExecutor(newSettings.threadCount());
+            } else if (previousThreads != newSettings.threadCount()) {
+                ExecutorService oldExecutor = LOCATE_EXECUTOR;
+                LOCATE_EXECUTOR = buildExecutor(newSettings.threadCount());
+                oldExecutor.shutdown();
             }
-            if (surfaceY <= level.getMinBuildHeight()) {
-                surfaceY = structurePos.getY();
+        }
+        LOGGER.info("[LocateFixer] Reloaded locate settings: {} rings, {}ms cache, {} thread(s).",
+                newSettings.rings().length, newSettings.cacheDurationMs(), newSettings.threadCount());
+    }
+
+    private static LocateSettings loadSettings() {
+        try {
+            List<? extends Integer> configuredRings = com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateRings.get();
+            List<Integer> ringList = new ArrayList<>();
+            for (Integer ring : configuredRings) {
+                if (ring != null && ring > 0) ringList.add(ring);
             }
-            int clampedY = Mth.clamp(surfaceY, level.getMinBuildHeight(), level.getMaxBuildHeight() - 1);
-            return new BlockPos(x, clampedY, z);
+            if (ringList.isEmpty()) {
+                for (int ring : DEFAULT_RINGS) ringList.add(ring);
+            }
+            int[] rings = new TreeSet<>(ringList).stream().mapToInt(Integer::intValue).toArray();
+
+            long cacheDurationMs = TimeUnit.MINUTES.toMillis(Math.max(1L, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheDurationMinutes.get()));
+            int cacheGranularity = Math.max(1, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheChunkGranularity.get());
+            int poiRadius = Math.max(16, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.poiSearchRadius.get());
+            int threadCount = Math.max(1, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateThreadCount.get());
+            double radiusMultiplier = Math.max(1.0D, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.biomeSampleRadiusMultiplier.get());
+            double stepMultiplier = Math.max(1.0D, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.biomeSampleStepMultiplier.get());
+
+            return new LocateSettings(rings, poiRadius, cacheDurationMs, cacheGranularity, threadCount, radiusMultiplier, stepMultiplier);
+        } catch (IllegalStateException ex) {
+            LOGGER.debug("[LocateFixer] Config not ready yet, using default locate settings.");
+            return DEFAULT_SETTINGS;
         }
+    }
 
-        private static int horizontalDistance (BlockPos origin, BlockPos target){
-            int dx = target.getX() - origin.getX();
-            int dz = target.getZ() - origin.getZ();
-            return (int) Math.sqrt((double) dx * dx + (double) dz * dz);
+    private static ExecutorService buildExecutor(int threadCount) {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(threadCount, threadCount, 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(), THREAD_FACTORY);
+        executor.allowCoreThreadTimeOut(false);
+        return executor;
+    }
+
+    private static ThreadFactory buildThreadFactory() {
+        AtomicInteger counter = new AtomicInteger();
+        return runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("LocateFixer-AsyncLocate-" + counter.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+    }
+
+    // ---------------------------------------------------------------------------
+    // Records
+    // ---------------------------------------------------------------------------
+
+    private record LocateCacheKey(String dimension, String target, int coarseChunkX, int coarseChunkZ) {
+        private static LocateCacheKey of(ServerLevel level, String target, BlockPos origin, int granularity) {
+            int chunkX = origin.getX() >> 4;
+            int chunkZ = origin.getZ() >> 4;
+            int coarseX = Math.floorDiv(chunkX, granularity);
+            int coarseZ = Math.floorDiv(chunkZ, granularity);
+            return new LocateCacheKey(level.dimension().location().toString(), target, coarseX, coarseZ);
         }
+    }
 
+    private record LocateCacheEntry<T>(BlockPos pos, Holder<T> holder, long timestamp) {}
 
-                private static void sendRingProgressUpdate(ServerLevel level, CommandSourceStack source, int scanRadius, int step, int totalSteps, long startedAtMs) {
-                    int progressPercent = Mth.clamp((int) Math.round((step * 100.0D) / totalSteps), 1, 100);
-                    long elapsedMs = Math.max(1L, System.currentTimeMillis() - startedAtMs);
-                    long avgStepMs = elapsedMs / Math.max(1, step);
-                    long remainingMs = Math.max(0L, avgStepMs * (totalSteps - step));
-                    long remainingSeconds = TimeUnit.MILLISECONDS.toSeconds(remainingMs);
-                    String etaText = remainingSeconds > 0 ? " ⏳ ~" + remainingSeconds + "s remaining" : "";
+    private record LocatedEntry(BlockPos pos, String name, int distance) {}
 
-                    level.getServer().execute(() -> source.sendSuccess(() ->
-                            Component.literal("🔍 Searching... radius " + scanRadius + " blocks (" + progressPercent + "%)" + etaText), false));
-                }
-
-                public static void reloadConfig() {
-                    LocateSettings newSettings = loadSettings();
-                    synchronized (AsyncLocateHandler.class) {
-                        int previousThreads = SETTINGS.threadCount(); // read inside lock
-                        SETTINGS = newSettings;
-                        if (LOCATE_EXECUTOR == null) {
-                            LOCATE_EXECUTOR = buildExecutor(newSettings.threadCount());
-                        } else if (previousThreads != newSettings.threadCount()) {
-                            ExecutorService oldExecutor = LOCATE_EXECUTOR;
-                            LOCATE_EXECUTOR = buildExecutor(newSettings.threadCount());
-                            oldExecutor.shutdown();
-                        }
-                    }
-                    LOGGER.info("[LocateFixer] Reloaded locate settings: {} rings, {}ms cache, {} thread(s).",
-                            newSettings.rings().length, newSettings.cacheDurationMs(), newSettings.threadCount());
-                }
-
-                private static LocateSettings loadSettings() {
-                    try {
-                        List<? extends Integer> configuredRings = com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateRings.get();
-                        List<Integer> ringList = new ArrayList<>();
-                        for (Integer ring : configuredRings) {
-                            if (ring != null && ring > 0) {
-                                ringList.add(ring);
-                            }
-                        }
-                        if (ringList.isEmpty()) {
-                            for (int ring : DEFAULT_RINGS) {
-                                ringList.add(ring);
-                            }
-                        }
-                        int[] rings = new TreeSet<>(ringList).stream().mapToInt(Integer::intValue).toArray();
-
-                        long cacheDurationMs = TimeUnit.MINUTES.toMillis(Math.max(1L, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheDurationMinutes.get()));
-                        int cacheGranularity = Math.max(1, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheChunkGranularity.get());
-                        int poiRadius = Math.max(16, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.poiSearchRadius.get());
-                        int threadCount = Math.max(1, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateThreadCount.get());
-                        double radiusMultiplier = Math.max(1.0D, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.biomeSampleRadiusMultiplier.get());
-                        double stepMultiplier = Math.max(1.0D, com.thunder.locatefixer.config.LocateFixerConfig.SERVER.biomeSampleStepMultiplier.get());
-
-                        return new LocateSettings(rings, poiRadius, cacheDurationMs, cacheGranularity, threadCount, radiusMultiplier, stepMultiplier);
-                    } catch (IllegalStateException ex) {
-                        LOGGER.debug("[LocateFixer] Config not ready yet, using default locate settings.");
-                        return DEFAULT_SETTINGS;
-                    }
-                }
-
-                private static ExecutorService buildExecutor(int threadCount) {
-                    ThreadPoolExecutor executor = new ThreadPoolExecutor(threadCount, threadCount, 0L, TimeUnit.MILLISECONDS,
-                            new LinkedBlockingQueue<>(), THREAD_FACTORY);
-                    executor.allowCoreThreadTimeOut(false);
-                    return executor;
-                }
-
-                private static ThreadFactory buildThreadFactory() {
-                    AtomicInteger counter = new AtomicInteger();
-                    return runnable -> {
-                        Thread thread = new Thread(runnable);
-                        thread.setName("LocateFixer-AsyncLocate-" + counter.incrementAndGet());
-                        thread.setDaemon(true);
-                        return thread;
-                    };
-                }
-
-                private record LocateCacheKey(String dimension, String target, int coarseChunkX, int coarseChunkZ) {
-                    private static LocateCacheKey of(ServerLevel level, String target, BlockPos origin, int granularity) {
-                        int chunkX = origin.getX() >> 4;
-                        int chunkZ = origin.getZ() >> 4;
-                        int coarseX = Math.floorDiv(chunkX, granularity);
-                        int coarseZ = Math.floorDiv(chunkZ, granularity);
-                        return new LocateCacheKey(level.dimension().location().toString(), target, coarseX, coarseZ);
-                    }
-                }
-
-                private record LocateCacheEntry<T>(BlockPos pos, Holder<T> holder, long timestamp) {
-                }
-
-                private record LocatedEntry(BlockPos pos, String name, int distance) {
-                }
-
-                private record LocateSettings(int[] rings, int poiSearchRadius, long cacheDurationMs,
-                                              int cacheGranularity,
-                                              int threadCount, double biomeSampleRadiusMultiplier,
-                                              double biomeSampleStepMultiplier) {
-                    int maxRadius() {
-                        return rings.length == 0 ? 0 : rings[rings.length - 1];
-                    }
-                }
+    private record LocateSettings(int[] rings, int poiSearchRadius, long cacheDurationMs,
+                                  int cacheGranularity, int threadCount,
+                                  double biomeSampleRadiusMultiplier, double biomeSampleStepMultiplier) {
+        int maxRadius() {
+            return rings.length == 0 ? 0 : rings[rings.length - 1];
         }
+    }
+}

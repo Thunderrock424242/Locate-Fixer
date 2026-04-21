@@ -2,7 +2,6 @@ package com.thunder.locatefixer.mixin;
 
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
-import com.thunder.locatefixer.mixin.accessor.TeleportCommandLookAtAccessor;
 import com.thunder.locatefixer.teleport.LocateTeleportHandler;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.Coordinates;
@@ -29,6 +28,8 @@ import java.util.Locale;
 
 import javax.annotation.Nullable;
 import net.neoforged.neoforge.event.EventHooks;
+
+import com.thunder.locatefixer.mixin.accessor.TeleportCommandLookAtAccessor;
 
 @Mixin(TeleportCommand.class)
 public abstract class TeleportCommandMixin {

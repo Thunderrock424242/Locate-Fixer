@@ -180,16 +180,19 @@ public final class LocateTeleportHandler {
             return false;
         }
 
-        BlockPos belowPos = pos.below();
-        BlockState belowState = level.getBlockState(belowPos);
-        if (!belowState.isFaceSturdy(level, belowPos, net.minecraft.core.Direction.UP)) {
+        // Use a single reusable mutable cursor for all block lookups — avoids allocating
+        // a new BlockPos object for every candidate position check.
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+
+        cursor.set(pos.getX(), pos.getY() - 1, pos.getZ());
+        BlockState belowState = level.getBlockState(cursor);
+        if (!belowState.isFaceSturdy(level, cursor, net.minecraft.core.Direction.UP)) {
             return false;
         }
-        if (belowState.getFluidState().is(FluidTags.LAVA)) {
+        if (belowState.getFluidState().is(net.minecraft.tags.FluidTags.LAVA)) {
             return false;
         }
 
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int dx = -SAFE_AREA_RADIUS; dx <= SAFE_AREA_RADIUS; dx++) {
             for (int dz = -SAFE_AREA_RADIUS; dz <= SAFE_AREA_RADIUS; dz++) {
                 for (int dy = 0; dy < SAFE_AREA_HEIGHT; dy++) {

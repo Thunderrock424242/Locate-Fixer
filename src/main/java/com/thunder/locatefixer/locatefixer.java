@@ -1,11 +1,7 @@
 package com.thunder.locatefixer;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.thunder.locatefixer.command.LocateFixerLastDeathCommand;
-import com.thunder.locatefixer.command.BaseHomeCommand;
-import com.thunder.locatefixer.command.LocateBaseCommand;
-import com.thunder.locatefixer.command.LocateFixerSchematicCommand;
-import com.thunder.locatefixer.command.LocateDimensionCommand;
+import com.thunder.locatefixer.command.*;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.integration.WorldEditHook;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
