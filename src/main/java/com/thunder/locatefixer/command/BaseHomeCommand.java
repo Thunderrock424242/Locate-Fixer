@@ -2,6 +2,7 @@ package com.thunder.locatefixer.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.data.PlayerBaseSavedData;
 import com.thunder.locatefixer.teleport.LocateTeleportHandler;
 import net.minecraft.commands.CommandSourceStack;
@@ -19,7 +20,8 @@ public class BaseHomeCommand {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         for (String root : new String[]{"base", "home"}) {
             dispatcher.register(Commands.literal(root)
-                    .requires(source -> source.getEntity() instanceof ServerPlayer)
+                    .requires(source -> source.getEntity() instanceof ServerPlayer
+                            && LocateFixerConfig.SERVER.enableBaseHomeCommands.get())
                     .executes(ctx -> listBases(ctx.getSource()))
                     .then(Commands.literal("set")
                             .then(Commands.argument("name", StringArgumentType.word())
