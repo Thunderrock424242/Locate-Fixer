@@ -14,8 +14,8 @@ tasks.named('wrapper', Wrapper).configure {
     distributionType = Wrapper.DistributionType.BIN
 }
 
-version = "2.1.2"
-group = mod_group_id
+version = "3.0.0"
+group = "com.thunder.locatefixer"
 
 repositories {
     // Add here additional repositories if required by some of the dependencies below.
@@ -148,13 +148,13 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
     var replaceProperties = [
             minecraft_version      : "1.21.1",
             minecraft_version_range: minecraft_version_range,
-            neo_version            : neo_version,
-            neo_version_range      : neo_version_range,
+            neo_version            : "21.1.219",
+            neo_version_range      : "[21.1.219,)",
             loader_version_range   : loader_version_range,
             mod_id                 : "locatefixer",
             mod_name               : "Locate Fixer",
-            mod_license            : mod_license,
-            mod_version            : "2.1.2",
+            mod_license            : "All Rights Reserved",
+            mod_version            : "3.0.0",
             mod_authors            : "thunderrock424242",
             mod_description        : mod_description
     ]
