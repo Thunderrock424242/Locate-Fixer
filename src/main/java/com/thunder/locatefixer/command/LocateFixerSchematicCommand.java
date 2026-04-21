@@ -34,13 +34,19 @@ public class LocateFixerSchematicCommand {
 
                                     AsyncLocateHandler.runAsyncTask("locate-schematic", () -> {
                                         int maxRadius = 256000;
+                                        if (!SchematicLocatorRegistry.isRegistered(id)) {
+                                            level.getServer().execute(() ->
+                                                    source.sendFailure(Component.literal("❌ No schematic named '" + id + "' is registered."))
+                                            );
+                                            return;
+                                        }
                                         SchematicLocatorRegistry.locate(id, level, origin, maxRadius)
                                                 .ifPresentOrElse(
                                                         pos -> level.getServer().execute(() ->
                                                                 LocateResultHelper.sendResult(source, "commands.locate.structure.success", id, origin, pos, false)
                                                         ),
                                                         () -> level.getServer().execute(() ->
-                                                                source.sendFailure(Component.literal("❌ Schematic '" + id + "' not found or has no registered location."))
+                                                                source.sendFailure(Component.literal("❌ Schematic '" + id + "' is indexed but has no recorded position yet. Paste it with WorldEdit first."))
                                                         )
                                                 );
                                     });

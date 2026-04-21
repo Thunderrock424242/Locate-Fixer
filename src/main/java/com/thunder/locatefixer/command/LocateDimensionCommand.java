@@ -3,6 +3,8 @@ package com.thunder.locatefixer.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.datafixers.util.Pair;
+import com.thunder.locatefixer.teleport.LocateTeleportHandler;
+import com.thunder.locatefixer.util.AsyncLocateHandler;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -20,8 +22,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.levelgen.Heightmap;
-import com.thunder.locatefixer.teleport.LocateTeleportHandler;
-import com.thunder.locatefixer.util.AsyncLocateHandler;
 
 import java.util.List;
 

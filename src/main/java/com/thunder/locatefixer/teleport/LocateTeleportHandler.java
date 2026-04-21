@@ -21,6 +21,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 public final class LocateTeleportHandler {
@@ -138,6 +139,7 @@ public final class LocateTeleportHandler {
                                           BlockPos safePos,
                                           Consumer<BlockPos> teleportAction) {
         CountdownTask task = new CountdownTask(level, player, forcedChunks, safePos, teleportAction);
+        // Store the future in the task via AtomicReference before the first tick can fire
         ScheduledFuture<?> future = PRELOAD_EXECUTOR.scheduleAtFixedRate(task, 0L, 1L, TimeUnit.SECONDS);
         task.attachFuture(future);
     }
@@ -208,7 +210,7 @@ public final class LocateTeleportHandler {
         private final BlockPos safePos;
         private final Consumer<BlockPos> teleportAction;
         private int secondsLeft;
-        private ScheduledFuture<?> future;
+        private final AtomicReference<ScheduledFuture<?>> futureRef = new AtomicReference<>();
 
         private CountdownTask(ServerLevel level,
                               ServerPlayer player,
@@ -224,7 +226,7 @@ public final class LocateTeleportHandler {
         }
 
         private void attachFuture(ScheduledFuture<?> future) {
-            this.future = future;
+            futureRef.set(future);
         }
 
         @Override
@@ -271,8 +273,9 @@ public final class LocateTeleportHandler {
         }
 
         private void cancelFuture() {
-            if (future != null && !future.isCancelled()) {
-                future.cancel(false);
+            ScheduledFuture<?> f = futureRef.get();
+            if (f != null && !f.isCancelled()) {
+                f.cancel(false);
             }
         }
     }

@@ -55,7 +55,10 @@ public class SchematicLocatorRegistry {
         return Collections.unmodifiableSet(all);
     }
 
-    // Auto-detect .schem files from WorldEdit folder
+    // Auto-detect .schem files from WorldEdit folder and index their names.
+    // Positions are NOT registered here because we have no reliable coordinates
+    // until the schematic is actually pasted via WorldEditHook. This scan only
+    // populates the name list so /locate schematic can suggest them.
     public static void scanWorldEditSchematicsFolder() {
         Path schemFolder = Paths.get("config", "worldedit", "schematics");
         if (!Files.exists(schemFolder)) {
@@ -66,10 +69,13 @@ public class SchematicLocatorRegistry {
             stream.filter(p -> p.toString().endsWith(".schem"))
                     .forEach(file -> {
                         String name = file.getFileName().toString().replace(".schem", "");
-                        SCHEMATIC_POSITIONS.computeIfAbsent(normalizeId(name), key -> {
-                            locatefixer.LOGGER.info("[LocateFixer] Found schematic: {}", name);
-                            return new BlockPos(0, 80, 0); // Default if no metadata
-                        });
+                        String key = normalizeId(name);
+                        // Only register if not already known (e.g. previously pasted with a real position)
+                        if (!LOCATORS.containsKey(key) && !SCHEMATIC_POSITIONS.containsKey(key)) {
+                            // Register a sentinel locator that reports "not pasted yet"
+                            LOCATORS.put(key, (level, origin, maxRadius) -> Optional.empty());
+                            locatefixer.LOGGER.info("[LocateFixer] Indexed schematic '{}' (not yet pasted — use WorldEdit to paste it first)", name);
+                        }
                     });
         } catch (IOException e) {
             locatefixer.LOGGER.error("[LocateFixer] Failed to scan schematics: {}", e.getMessage());

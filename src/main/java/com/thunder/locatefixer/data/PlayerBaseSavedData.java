@@ -102,6 +102,25 @@ public class PlayerBaseSavedData extends SavedData {
         return playerBases.get(normalizeName(baseName));
     }
 
+    /**
+     * Removes a named base for a player.
+     * @return true if the base existed and was removed, false if it did not exist.
+     */
+    public boolean removeBase(UUID playerId, String baseName) {
+        Map<String, BlockPos> playerBases = basesByPlayer.get(playerId);
+        if (playerBases == null) {
+            return false;
+        }
+        boolean removed = playerBases.remove(normalizeName(baseName)) != null;
+        if (removed) {
+            if (playerBases.isEmpty()) {
+                basesByPlayer.remove(playerId);
+            }
+            setDirty();
+        }
+        return removed;
+    }
+
     public Set<String> getBaseNames(UUID playerId) {
         Map<String, BlockPos> playerBases = basesByPlayer.get(playerId);
         if (playerBases == null) {

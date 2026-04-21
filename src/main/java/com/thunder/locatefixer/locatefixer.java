@@ -60,8 +60,8 @@ public class locatefixer {
     // You can use SubscribeEvent and let the Event Bus discover methods to call
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
-        // Do something when the server starts
-        LOGGER.info("HELLO from server starting");
+        LOGGER.info("[LocateFixer] Server starting — async locate handler ready ({} rings configured).",
+                com.thunder.locatefixer.config.LocateFixerConfig.SERVER.locateRings.get().size());
     }
     /**
      * On register commands.

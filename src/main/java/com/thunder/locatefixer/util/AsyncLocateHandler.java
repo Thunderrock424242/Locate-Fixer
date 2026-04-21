@@ -8,7 +8,6 @@ import net.minecraft.commands.arguments.ResourceOrTagArgument;
 import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;
 import net.minecraft.core.*;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
@@ -39,6 +38,7 @@ import static com.thunder.locatefixer.locatefixer.LOGGER;
 public class AsyncLocateHandler {
 
     private static final int[] DEFAULT_RINGS = {6400, 16000, 32000, 64000, 128000, 256000};
+    private static final int CACHE_MAX_ENTRIES = 512;
     private static final LocateSettings DEFAULT_SETTINGS = new LocateSettings(
             DEFAULT_RINGS,
             1024,
@@ -115,7 +115,7 @@ public class AsyncLocateHandler {
                         BlockPos pos = result.getFirst();
                         Holder<Structure> holder = result.getSecond();
 
-                        STRUCTURE_CACHE.put(cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
+                        putWithEviction(STRUCTURE_CACHE, cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
 
                         level.getServer().execute(() -> {
                             BlockPos surfacePos = structureTeleportTarget(level, pos);
@@ -178,7 +178,7 @@ public class AsyncLocateHandler {
                         BlockPos pos = result.getFirst();
                         Holder<Biome> holder = result.getSecond();
 
-                        BIOME_CACHE.put(cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
+                        putWithEviction(BIOME_CACHE, cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
 
                         level.getServer().execute(() ->
                                 LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, pos, true)
@@ -369,9 +369,8 @@ public class AsyncLocateHandler {
         return anchors;
     }
 
-        private static <
-        T > LocateCacheEntry < T > getValidCacheEntry(ConcurrentMap < LocateCacheKey, LocateCacheEntry < T >> cache, LocateCacheKey key,
-        long cacheDurationMs){
+        private static <T> LocateCacheEntry<T> getValidCacheEntry(ConcurrentMap<LocateCacheKey, LocateCacheEntry<T>> cache, LocateCacheKey key,
+        long cacheDurationMs) {
             LocateCacheEntry<T> entry = cache.get(key);
             if (entry == null) {
                 return null;
@@ -381,6 +380,21 @@ public class AsyncLocateHandler {
                 return null;
             }
             return entry;
+        }
+
+        /**
+         * Evicts the oldest entry from the cache if it has grown past CACHE_MAX_ENTRIES.
+         * This prevents unbounded memory growth on long-running servers.
+         */
+        private static <T> void putWithEviction(ConcurrentMap<LocateCacheKey, LocateCacheEntry<T>> cache,
+                                                LocateCacheKey key, LocateCacheEntry<T> entry) {
+            if (cache.size() >= CACHE_MAX_ENTRIES) {
+                cache.entrySet().stream()
+                        .min(java.util.Comparator.comparingLong(e -> e.getValue().timestamp()))
+                        .map(java.util.Map.Entry::getKey)
+                        .ifPresent(cache::remove);
+            }
+            cache.put(key, entry);
         }
 
         private static int findStartIndex (LocateCacheEntry < ? > entry, BlockPos origin,int[] rings){
@@ -448,7 +462,7 @@ public class AsyncLocateHandler {
                 public static void reloadConfig() {
                     LocateSettings newSettings = loadSettings();
                     synchronized (AsyncLocateHandler.class) {
-                        int previousThreads = SETTINGS.threadCount();
+                        int previousThreads = SETTINGS.threadCount(); // read inside lock
                         SETTINGS = newSettings;
                         if (LOCATE_EXECUTOR == null) {
                             LOCATE_EXECUTOR = buildExecutor(newSettings.threadCount());
