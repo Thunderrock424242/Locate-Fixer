@@ -2,6 +2,7 @@ package com.thunder.locatefixer.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -23,6 +24,7 @@ public class LocateFixerLastDeathCommand {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("locate")
                 .then(Commands.literal("lastdeath")
+                        .requires(source -> LocateFixerConfig.SERVER.enableRecentDeathCommand.get())
                         .executes(context -> execute(context.getSource()))));
     }
 
