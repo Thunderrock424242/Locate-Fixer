@@ -91,7 +91,13 @@ public class AsyncLocateHandler {
                     return;
                 }
 
-                LocateCacheKey cacheKey = LocateCacheKey.of(level, structure.asPrintable(), origin, settings.cacheGranularity());
+                Registry<Structure> registry = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE);
+                HolderSet<Structure> holders = LocateCommandInvoker.invokeGetHolders(structure, registry)
+                        .orElseThrow(() -> LocateCommandAccessor.getStructureInvalid().create(structure.asPrintable()));
+                String canonicalTarget = canonicalStructureTarget(structure, holders);
+                Set<String> allowedStructureIds = resolvedStructureIds(holders);
+
+                LocateCacheKey cacheKey = LocateCacheKey.of(level, canonicalTarget, origin, settings.cacheGranularity());
                 LocateCacheEntry<Structure> cacheEntry = getValidCacheEntry(STRUCTURE_CACHE, cacheKey, settings.cacheDurationMs());
 
                 if (cacheEntry != null) {
@@ -106,11 +112,6 @@ public class AsyncLocateHandler {
                         return;
                     }
                 }
-
-                Registry<Structure> registry = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE);
-                HolderSet<Structure> holders = LocateCommandInvoker.invokeGetHolders(structure, registry)
-                        .orElseThrow(() -> LocateCommandAccessor.getStructureInvalid().create(structure.asPrintable()));
-
                 int startIndex = findStartIndex(cacheEntry, origin, rings);
                 int totalSteps = Math.max(1, rings.length - startIndex);
                 long startedAt = System.currentTimeMillis();
@@ -127,6 +128,12 @@ public class AsyncLocateHandler {
                     if (result != null) {
                         BlockPos pos = result.getFirst();
                         Holder<Structure> holder = result.getSecond();
+                        String foundId = holder.getRegisteredName();
+                        if (!allowedStructureIds.contains(foundId)) {
+                            LOGGER.warn("[LocateFixer] Ignoring locate candidate '{}' for request '{}'; resolved allowed ids={}",
+                                    foundId, canonicalTarget, allowedStructureIds);
+                            continue;
+                        }
 
                         putWithEviction(STRUCTURE_CACHE, cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
 
@@ -577,6 +584,33 @@ public class AsyncLocateHandler {
         long dx = target.getX() - origin.getX();
         long dz = target.getZ() - origin.getZ();
         return dx * dx + dz * dz;
+    }
+
+    private static String canonicalStructureTarget(ResourceOrTagKeyArgument.Result<Structure> requested,
+                                                   HolderSet<Structure> holders) {
+        if (holders.size() == 1) {
+            return holders.stream().findFirst().map(Holder::getRegisteredName).orElse(requested.asPrintable());
+        }
+        // For tags/multi-target searches, cache by resolved structure ids so different
+        // queries cannot accidentally share results.
+        return holders.stream()
+                .map(Holder::getRegisteredName)
+                .filter(Objects::nonNull)
+                .sorted()
+                .reduce((a, b) -> a + "," + b)
+                .map(ids -> "set:" + ids)
+                .orElse(requested.asPrintable());
+    }
+
+    private static Set<String> resolvedStructureIds(HolderSet<Structure> holders) {
+        Set<String> ids = new HashSet<>();
+        for (Holder<Structure> holder : holders) {
+            String id = holder.getRegisteredName();
+            if (id != null) {
+                ids.add(id);
+            }
+        }
+        return ids;
     }
 
     private static void sendRingProgressUpdate(ServerLevel level, CommandSourceStack source,
