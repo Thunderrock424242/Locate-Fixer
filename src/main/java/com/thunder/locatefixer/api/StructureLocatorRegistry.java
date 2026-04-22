@@ -34,11 +34,24 @@ public class StructureLocatorRegistry {
 
     /**
      * Registers a custom structure locator.
-     * @param id A unique string like "mymod:skycastle"
-     * @param locator Logic to locate the structure
+     *
+     * @param id      a unique string like "mymod:skycastle"
+     * @param locator logic to locate the structure
      */
     public static void register(String id, CustomStructureLocator locator) {
-        LOCATORS.put(normalizeId(id), locator);
+        LOCATORS.put(normalizeId(id), Objects.requireNonNull(locator, "locator"));
+    }
+
+    /**
+     * Convenience overload for provider classes that implement the API.
+     */
+    public static void register(LocateFixerStructureProvider provider) {
+        Objects.requireNonNull(provider, "provider");
+        register(provider.locateFixerStructureId(), provider::locateNearest);
+    }
+
+    public static void unregister(String id) {
+        LOCATORS.remove(normalizeId(id));
     }
 
     /**
