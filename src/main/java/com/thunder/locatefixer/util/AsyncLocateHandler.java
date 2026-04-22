@@ -4,6 +4,7 @@ import com.mojang.datafixers.util.Pair;
 import com.thunder.locatefixer.api.StructureLocatorRegistry;
 import com.thunder.locatefixer.mixin.LocateCommandAccessor;
 import com.thunder.locatefixer.mixin.LocateCommandInvoker;
+import com.thunder.locatefixer.teleport.LocateTeleportHandler;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.ResourceOrTagArgument;
 import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;
@@ -14,7 +15,6 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
 import net.minecraft.world.entity.ai.village.poi.PoiType;
 import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.Structure;
 
 import java.util.*;
@@ -105,7 +105,7 @@ public class AsyncLocateHandler {
                     if (horizontalDistanceSq(origin, cachedPos) <= (long) settings.maxRadius() * settings.maxRadius()) {
                         Holder<Structure> holder = cacheEntry.holder();
                         level.getServer().execute(() -> {
-                            BlockPos surfacePos = structureTeleportTarget(level, cachedPos);
+                            BlockPos surfacePos = locateTeleportTarget(level, structureTeleportTarget(level, cachedPos));
                             source.sendSuccess(() -> Component.literal("✅ Using cached locate result."), false);
                             LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, surfacePos, true);
                         });
@@ -138,7 +138,7 @@ public class AsyncLocateHandler {
                         putWithEviction(STRUCTURE_CACHE, cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
 
                         level.getServer().execute(() -> {
-                            BlockPos surfacePos = structureTeleportTarget(level, pos);
+                            BlockPos surfacePos = locateTeleportTarget(level, structureTeleportTarget(level, pos));
                             LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, surfacePos, true);
                         });
                         return;
@@ -185,7 +185,8 @@ public class AsyncLocateHandler {
                         return;
                     }
 
-                    LocateResultHelper.sendResult(source, "commands.locatefixer.base.success", structureId, origin, result.get(), true);
+                    BlockPos teleportTarget = locateTeleportTarget(level, result.get());
+                    LocateResultHelper.sendResult(source, "commands.locatefixer.base.success", structureId, origin, teleportTarget, true);
                 });
             } catch (Exception e) {
                 LOGGER.error("[LocateFixer] Unexpected error while locating custom structure '{}'", structureId, e);
@@ -219,8 +220,9 @@ public class AsyncLocateHandler {
                     if (horizontalDistanceSq(origin, cachedPos) <= (long) settings.maxRadius() * settings.maxRadius()) {
                         Holder<Biome> holder = cacheEntry.holder();
                         level.getServer().execute(() -> {
+                            BlockPos teleportTarget = locateTeleportTarget(level, cachedPos);
                             source.sendSuccess(() -> Component.literal("✅ Using cached locate result."), false);
-                            LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, cachedPos, true);
+                            LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, teleportTarget, true);
                         });
                         return;
                     }
@@ -244,9 +246,10 @@ public class AsyncLocateHandler {
 
                         putWithEviction(BIOME_CACHE, cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
 
-                        level.getServer().execute(() ->
-                                LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, pos, true)
-                        );
+                        level.getServer().execute(() -> {
+                            BlockPos teleportTarget = locateTeleportTarget(level, pos);
+                            LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, teleportTarget, true);
+                        });
                         return;
                     }
                 }
@@ -285,8 +288,9 @@ public class AsyncLocateHandler {
                     Holder<PoiType> holder = found.getFirst();
 
                     level.getServer().execute(() -> {
+                        BlockPos teleportTarget = locateTeleportTarget(level, pos);
                         source.sendSuccess(() -> Component.literal("✅ Search completed."), false);
-                        LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, pos, true);
+                        LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, teleportTarget, true);
                     });
                 } else {
                     level.getServer().execute(() ->
@@ -554,18 +558,15 @@ public class AsyncLocateHandler {
     }
 
     private static BlockPos structureTeleportTarget(ServerLevel level, BlockPos structurePos) {
-        int x = structurePos.getX();
-        int z = structurePos.getZ();
-        int surfaceY;
-        if (level.hasChunk(SectionPos.blockToSectionCoord(x), SectionPos.blockToSectionCoord(z))) {
-            surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
-        } else {
-            surfaceY = structurePos.getY();
-        }
-        if (surfaceY <= level.getMinBuildHeight()) {
-            surfaceY = structurePos.getY();
-        }
-        return new BlockPos(x, Mth.clamp(surfaceY, level.getMinBuildHeight(), level.getMaxBuildHeight() - 1), z);
+        // Keep the original structure Y as the teleport anchor. The safe-teleport handler
+        // will adjust to a nearby safe spot, but preserving Y here avoids large vertical
+        // offsets (for example when structures generate far below/above world surface).
+        int clampedY = Mth.clamp(structurePos.getY(), level.getMinBuildHeight(), level.getMaxBuildHeight() - 1);
+        return new BlockPos(structurePos.getX(), clampedY, structurePos.getZ());
+    }
+
+    private static BlockPos locateTeleportTarget(ServerLevel level, BlockPos locatedPos) {
+        return LocateTeleportHandler.findSafeTeleportPosition(level, locatedPos);
     }
 
     /**
