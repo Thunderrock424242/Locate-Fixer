@@ -4,6 +4,7 @@ import com.mojang.datafixers.util.Pair;
 import com.thunder.locatefixer.api.StructureLocatorRegistry;
 import com.thunder.locatefixer.mixin.LocateCommandAccessor;
 import com.thunder.locatefixer.mixin.LocateCommandInvoker;
+import com.thunder.locatefixer.teleport.LocateTeleportHandler;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.ResourceOrTagArgument;
 import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;

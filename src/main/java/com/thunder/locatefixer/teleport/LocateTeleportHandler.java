@@ -118,6 +118,11 @@ public final class LocateTeleportHandler {
     }
 
     private static BlockPos findSurfaceSafePosition(ServerLevel level, BlockPos targetPos) {
+        BlockPos nearTarget = findNearestSafePositionAroundY(level, targetPos);
+        if (nearTarget != null) {
+            return nearTarget;
+        }
+
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos(targetPos.getX(), level.getMaxBuildHeight(), targetPos.getZ());
 
         while (cursor.getY() > level.getMinBuildHeight()) {
