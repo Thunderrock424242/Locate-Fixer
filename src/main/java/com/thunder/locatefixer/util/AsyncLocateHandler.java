@@ -587,9 +587,17 @@ public class AsyncLocateHandler {
         long remainingMs = Math.max(0L, avgStepMs * (totalSteps - step));
         long remainingSeconds = TimeUnit.MILLISECONDS.toSeconds(remainingMs);
         String etaText = remainingSeconds > 0 ? " ⏳ ~" + remainingSeconds + "s remaining" : "";
+        String radiusText = "radius " + scanRadius + " blocks";
+        String searchStateText;
+        if (scanRadius > 6400) {
+            int lanesPassed = Math.max(1, scanRadius / 6400);
+            searchStateText = "🔍 Extending search radius... passed " + lanesPassed + " lane(s) of 6400 blocks, " + radiusText;
+        } else {
+            searchStateText = "🔍 Searching... " + radiusText;
+        }
 
         level.getServer().execute(() -> source.sendSuccess(() ->
-                Component.literal("🔍 Searching... radius " + scanRadius + " blocks (" + progressPercent + "%)" + etaText), false));
+                Component.literal(searchStateText + " (" + progressPercent + "%)" + etaText), false));
     }
 
     public static void reloadConfig() {

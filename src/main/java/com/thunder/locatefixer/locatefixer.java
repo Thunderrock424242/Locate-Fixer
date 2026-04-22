@@ -70,12 +70,8 @@ public class locatefixer {
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
         LocateFixerSchematicCommand.register(dispatcher);
         LocateDimensionCommand.register(dispatcher);
-        if (LocateFixerConfig.SERVER.enableNearestCommand.get()) {
-            LocateFixerNearestCommand.register(dispatcher);
-        }
-        if (StructureLocatorRegistry.hasRegisteredStructures()) {
-            LocateFixerCustomStructureCommand.register(dispatcher);
-        }
+        LocateFixerNearestCommand.register(dispatcher);
+        LocateFixerCustomStructureCommand.register(dispatcher);
     }
 
     private void onConfigLoad(ModConfigEvent.Loading event) {
