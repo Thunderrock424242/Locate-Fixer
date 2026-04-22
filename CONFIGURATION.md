@@ -31,8 +31,6 @@ All values listed below match the defaults that ship with the mod.
 | `cacheChunkGranularity` | `8` | Chunk granularity used when caching locate results. Higher numbers share cached results across a wider area; lower numbers increase precision. Valid range is 1–128. |
 | `biomeSampleRadiusMultiplier` | `1.5` | Multiplier applied to the computed biome sample radius to reduce sample density. Increase it to check fewer sample points per ring (minimum 1.0, maximum 8.0). |
 | `biomeSampleStepMultiplier` | `1.75` | Multiplier applied to the computed biome sample step to reduce sample density. Higher values increase the step size between samples (minimum 1.0, maximum 8.0). |
-| `enableBaseHomeCommands` | `true` | Enables or disables the `/base` and `/home` commands. Set to `false` to hide and block both commands. |
-| `enableRecentDeathCommand` | `true` | Enables or disables the `/locate lastdeath` command. Set to `false` to hide and block that subcommand. |
 
 ### `[poi]`
 
