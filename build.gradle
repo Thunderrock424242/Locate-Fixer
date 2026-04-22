@@ -1,7 +1,7 @@
 plugins {
     id 'java-library'
     id 'maven-publish'
-    id 'net.neoforged.moddev' version '2.0.140'
+    id 'net.neoforged.moddev' version '2.0.141'
     id 'idea'
 }
 
@@ -14,7 +14,7 @@ tasks.named('wrapper', Wrapper).configure {
     distributionType = Wrapper.DistributionType.BIN
 }
 
-version = "3.0.0"
+version = "3.1.0"
 group = "com.thunder.locatefixer"
 
 repositories {
@@ -30,7 +30,7 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
 neoForge {
     // Specify the version of NeoForge to use.
-    version = "21.1.219"
+    version = "21.1.227"
 
     parchment {
         mappingsVersion = project.parchment_mappings_version
@@ -148,13 +148,13 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
     var replaceProperties = [
             minecraft_version      : "1.21.1",
             minecraft_version_range: minecraft_version_range,
-            neo_version            : "21.1.219",
+            neo_version            : "21.1.227",
             neo_version_range      : "[21.1.219,)",
             loader_version_range   : loader_version_range,
             mod_id                 : "locatefixer",
             mod_name               : "Locate Fixer",
             mod_license            : "All Rights Reserved",
-            mod_version            : "3.0.0",
+            mod_version            : "3.1.0",
             mod_authors            : "thunderrock424242",
             mod_description        : mod_description
     ]
