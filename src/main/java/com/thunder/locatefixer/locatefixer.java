@@ -7,6 +7,7 @@ import com.thunder.locatefixer.integration.WorldEditHook;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import net.minecraft.commands.CommandSourceStack;
+import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.slf4j.Logger;
 
@@ -81,7 +82,7 @@ public class locatefixer {
         }
     }
 
-    private static boolean isEnabled(net.neoforged.neoforge.common.ModConfigSpec.BooleanValue setting) {
+    private static boolean isEnabled(ModConfigSpec.BooleanValue setting) {
         try {
             return setting.get();
         } catch (IllegalStateException e) {
