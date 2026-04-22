@@ -20,8 +20,17 @@ public class BaseHomeCommand {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         for (String root : new String[]{"base", "home"}) {
             dispatcher.register(Commands.literal(root)
-                    .requires(source -> source.getEntity() instanceof ServerPlayer
-                            && LocateFixerConfig.SERVER.enableBaseHomeCommands.get())
+                    .requires(source -> {
+                        // This requirement is evaluated at runtime when a world is loaded,
+                        // ensuring the config is available and hasn't crashed the boot process.
+                        try {
+                            return source.getEntity() instanceof ServerPlayer
+                                    && LocateFixerConfig.SERVER.enableBaseHomeCommands.get();
+                        } catch (IllegalStateException e) {
+                            // Fallback in case the command is polled before the world is fully initialized
+                            return false;
+                        }
+                    })
                     .executes(ctx -> listBases(ctx.getSource()))
                     .then(Commands.literal("set")
                             .then(Commands.argument("name", StringArgumentType.word())

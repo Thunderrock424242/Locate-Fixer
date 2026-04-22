@@ -28,6 +28,7 @@ public final class LocateFixerConfig {
         public final ModConfigSpec.IntValue poiSearchRadius;
         public final ModConfigSpec.BooleanValue enableBaseHomeCommands;
         public final ModConfigSpec.BooleanValue enableRecentDeathCommand;
+        public final ModConfigSpec.BooleanValue enableNearestCommand;
 
         private ServerConfig(ModConfigSpec.Builder builder) {
             builder.push("locate");
@@ -53,11 +54,14 @@ public final class LocateFixerConfig {
                     .defineInRange("biomeSampleStepMultiplier", 1.75D, 1.0D, 8.0D);
             enableBaseHomeCommands = builder
                     .comment("Whether /base and /home commands are registered and usable.")
-                    .define("enableBaseHomeCommands", true);
+                    .define("enableBaseHomeCommands", false);
             enableRecentDeathCommand = builder
                     .comment("Whether /locate lastdeath is registered and usable.")
-                    .define("enableRecentDeathCommand", true);
+                    .define("enableRecentDeathCommand", false);
             builder.pop();
+            enableNearestCommand = builder
+                    .comment("Whether the /locate nearest command is registered and usable.")
+                    .define("enableNearestCommand", false);
 
             builder.push("poi");
             poiSearchRadius = builder
