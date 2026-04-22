@@ -1,6 +1,7 @@
 package com.thunder.locatefixer.util;
 
 import com.mojang.datafixers.util.Pair;
+import com.thunder.locatefixer.api.StructureLocatorRegistry;
 import com.thunder.locatefixer.mixin.LocateCommandAccessor;
 import com.thunder.locatefixer.mixin.LocateCommandInvoker;
 import net.minecraft.commands.CommandSourceStack;
@@ -144,6 +145,45 @@ public class AsyncLocateHandler {
                 LOGGER.error("[LocateFixer] Unexpected error while locating structure", e);
                 level.getServer().execute(() ->
                         source.sendFailure(Component.literal("LocateFixer error (structure): " + e.getMessage())));
+            } finally {
+                IN_FLIGHT_PLAYERS.remove(playerKey);
+            }
+        }, LOCATE_EXECUTOR);
+    }
+
+
+    public static void locateCustomStructureAsync(CommandSourceStack source, String structureId, BlockPos origin, ServerLevel level) {
+        String playerKey = playerKey(source);
+        if (!acquireInFlight(source, playerKey)) return;
+
+        final LocateSettings settings = SETTINGS;
+        CompletableFuture.runAsync(() -> {
+            try {
+                int[] rings = settings.rings();
+                if (rings.length == 0) {
+                    level.getServer().execute(() ->
+                            source.sendFailure(Component.literal("❌ No locate search radii configured.")));
+                    return;
+                }
+
+                int maxRadius = settings.maxRadius();
+                level.getServer().execute(() -> source.sendSuccess(() ->
+                        Component.literal("🔍 Locating structure '" + structureId + "'..."), false));
+
+                Optional<BlockPos> result = StructureLocatorRegistry.locate(structureId, level, origin, maxRadius);
+
+                level.getServer().execute(() -> {
+                    if (result.isEmpty()) {
+                        source.sendFailure(Component.literal("❌ Structure '" + structureId + "' was not found within " + maxRadius + " blocks."));
+                        return;
+                    }
+
+                    LocateResultHelper.sendResult(source, "commands.locatefixer.base.success", structureId, origin, result.get(), true);
+                });
+            } catch (Exception e) {
+                LOGGER.error("[LocateFixer] Unexpected error while locating custom structure '{}'", structureId, e);
+                level.getServer().execute(() ->
+                        source.sendFailure(Component.literal("LocateFixer error (custom structure): " + e.getMessage())));
             } finally {
                 IN_FLIGHT_PLAYERS.remove(playerKey);
             }

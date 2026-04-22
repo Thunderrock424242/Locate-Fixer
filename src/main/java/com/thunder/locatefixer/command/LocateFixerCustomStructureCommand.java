@@ -3,6 +3,7 @@ package com.thunder.locatefixer.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.thunder.locatefixer.api.StructureLocatorRegistry;
+import com.thunder.locatefixer.util.AsyncLocateHandler;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import com.thunder.locatefixer.util.LocateResultHelper;
@@ -48,6 +49,7 @@ public final class LocateFixerCustomStructureCommand {
 
         ServerLevel level = source.getLevel();
         BlockPos origin = BlockPos.containing(source.getPosition());
+        AsyncLocateHandler.locateCustomStructureAsync(source, id, origin, level);
         int maxRadius = LocateFixerConfig.SERVER.locateRings.get().stream()
                 .mapToInt(Integer::intValue)
                 .max()

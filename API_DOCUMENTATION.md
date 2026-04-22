@@ -83,6 +83,7 @@ Once registered, server operators can run:
 ```
 
 - Suggestions for known ids are provided in command autocomplete.
+- Registered custom ids run through Locate Fixer's async locate handler pipeline (same worker pool + anti-spam guard behavior as the optimized locate flow).
 - If the id is not registered, Locate Fixer returns an error message.
 
 ---
