@@ -29,8 +29,6 @@ import java.util.Locale;
 import javax.annotation.Nullable;
 import net.neoforged.neoforge.event.EventHooks;
 
-import com.thunder.locatefixer.mixin.accessor.TeleportCommandLookAtAccessor;
-
 @Mixin(TeleportCommand.class)
 public abstract class TeleportCommandMixin {
 
@@ -44,7 +42,7 @@ public abstract class TeleportCommandMixin {
                                                   ServerLevel level,
                                                   Coordinates position,
                                                   Coordinates rotation,
-                                                  @Coerce @Nullable TeleportCommandLookAtAccessor facing,
+                                                  @Coerce @Nullable Object facing, // Changed from TeleportCommandLookAtAccessor to Object
                                                   CallbackInfoReturnable<Integer> cir) throws CommandSyntaxException {
         if (targets.size() != 1 || rotation != null || facing != null) {
             return;
