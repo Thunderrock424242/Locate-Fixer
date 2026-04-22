@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.authlib.GameProfile;
+import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.data.PlayerBaseSavedData;
 import com.thunder.locatefixer.util.LocateResultHelper;
 import net.minecraft.commands.CommandSourceStack;
@@ -24,6 +25,7 @@ public class LocateBaseCommand {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("locate")
                 .then(Commands.literal("home")
+                        .requires(source -> isBaseHomeEnabled())
                         .requires(source -> source.getEntity() instanceof ServerPlayer)
                         .then(Commands.argument("name", StringArgumentType.word())
                                 .suggests(BaseHomeCommand::suggestOwnBases)
@@ -40,6 +42,7 @@ public class LocateBaseCommand {
                         )
                 )
                 .then(Commands.literal("playerhome")
+                        .requires(source -> isBaseHomeEnabled())
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.argument("player", GameProfileArgument.gameProfile())
                                 .executes(ctx -> locateDefaultPlayerBase(ctx.getSource(), GameProfileArgument.getGameProfiles(ctx, "player")))
@@ -51,6 +54,14 @@ public class LocateBaseCommand {
                                 )
                         )
                 ));
+    }
+
+    private static boolean isBaseHomeEnabled() {
+        try {
+            return LocateFixerConfig.SERVER.enableBaseHomeCommands.get();
+        } catch (IllegalStateException e) {
+            return false;
+        }
     }
 
     private static int locateOwnBase(CommandSourceStack source, String name) {
