@@ -7,7 +7,6 @@ import com.thunder.locatefixer.integration.WorldEditHook;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import net.minecraft.commands.CommandSourceStack;
-import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.slf4j.Logger;
 
@@ -70,25 +69,10 @@ public class locatefixer {
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
         LocateFixerSchematicCommand.register(dispatcher);
         LocateDimensionCommand.register(dispatcher);
-        if (isEnabled(LocateFixerConfig.SERVER.enableRecentDeathCommand)) {
-            LocateFixerLastDeathCommand.register(dispatcher);
-        }
-        if (isEnabled(LocateFixerConfig.SERVER.enableBaseHomeCommands)) {
-            BaseHomeCommand.register(dispatcher);
-            LocateBaseCommand.register(dispatcher);
-        }
-        if (isEnabled(LocateFixerConfig.SERVER.enableNearestCommand)) {
+        if (LocateFixerConfig.SERVER.enableNearestCommand.get()) {
             LocateFixerNearestCommand.register(dispatcher);
         }
         LocateFixerCustomStructureCommand.register(dispatcher);
-    }
-
-    private static boolean isEnabled(ModConfigSpec.BooleanValue setting) {
-        try {
-            return setting.get();
-        } catch (IllegalStateException e) {
-            return false;
-        }
     }
 
     private void onConfigLoad(ModConfigEvent.Loading event) {
