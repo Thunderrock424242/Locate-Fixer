@@ -2,6 +2,9 @@ package com.thunder.locatefixer.teleport;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -14,6 +17,9 @@ import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -32,8 +38,10 @@ public final class LocateTeleportHandler {
     private static final int SAFE_SEARCH_UP = 24;
     private static final int SAFE_SEARCH_DOWN = 12;
     private static final int SAFE_SEARCH_HORIZONTAL = 4;
+    private static final int CONFIRM_TIMEOUT_SECONDS = 30;
     private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
     private static final TagKey<Biome> CAVE_BIOME_TAG = Tags.Biomes.IS_CAVE;
+    private static final Map<UUID, PendingUnsafeTeleport> PENDING_UNSAFE_TELEPORTS = new ConcurrentHashMap<>();
 
     private LocateTeleportHandler() {
     }
@@ -63,6 +71,36 @@ public final class LocateTeleportHandler {
 
     public static BlockPos findSurfaceSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
         return findSurfaceSafePosition(level, targetPos);
+    }
+
+    public static boolean respondToUnsafeTeleport(ServerPlayer player, boolean allowTeleport) {
+        PendingUnsafeTeleport pending = PENDING_UNSAFE_TELEPORTS.remove(player.getUUID());
+        if (pending == null) {
+            return false;
+        }
+
+        pending.cancelTimeout();
+
+        ServerLevel level = pending.level();
+        level.getServer().execute(() -> {
+            try {
+                if (player.isRemoved()) {
+                    return;
+                }
+
+                if (allowTeleport) {
+                    player.sendSystemMessage(Component.literal("⚠️ Teleporting to the original position anyway."));
+                    pending.teleportAction().accept(pending.unsafeTarget());
+                } else {
+                    player.sendSystemMessage(Component.literal("❌ Teleport cancelled."));
+                }
+            } catch (Exception e) {
+                if (!player.isRemoved()) player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
+            } finally {
+                releaseChunks(level, pending.forcedChunks());
+            }
+        });
+        return true;
     }
 
     /**
@@ -192,6 +230,49 @@ public final class LocateTeleportHandler {
         return true;
     }
 
+    private static void requestUnsafeTeleportConfirmation(ServerLevel level,
+                                                          ServerPlayer player,
+                                                          List<ChunkPos> forcedChunks,
+                                                          BlockPos unsafeTarget,
+                                                          Consumer<BlockPos> teleportAction) {
+        PendingUnsafeTeleport existing = PENDING_UNSAFE_TELEPORTS.remove(player.getUUID());
+        if (existing != null) {
+            existing.cancelTimeout();
+            releaseChunks(existing.level(), existing.forcedChunks());
+        }
+
+        ScheduledFuture<?> timeoutFuture = PRELOAD_EXECUTOR.schedule(() -> {
+            PendingUnsafeTeleport expired = PENDING_UNSAFE_TELEPORTS.remove(player.getUUID());
+            if (expired == null) {
+                return;
+            }
+            level.getServer().execute(() -> {
+                if (!player.isRemoved()) {
+                    player.sendSystemMessage(Component.literal("⏱ No answer received in 30 seconds. Teleport cancelled."));
+                }
+                releaseChunks(level, forcedChunks);
+            });
+        }, CONFIRM_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+        PENDING_UNSAFE_TELEPORTS.put(player.getUUID(),
+                new PendingUnsafeTeleport(level, forcedChunks, unsafeTarget, teleportAction, timeoutFuture));
+
+        MutableComponent prompt = Component.literal("❗No safe position was found. Would you like to teleport anyway? ");
+        MutableComponent yesButton = Component.literal("[Yes]")
+                .withStyle(Style.EMPTY
+                        .withColor(0x55FF55)
+                        .withBold(true)
+                        .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/locatefixerconfirm yes")));
+        MutableComponent noButton = Component.literal("[No]")
+                .withStyle(Style.EMPTY
+                        .withColor(0xFF5555)
+                        .withBold(true)
+                        .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/locatefixerconfirm no")));
+
+        player.sendSystemMessage(prompt.append(yesButton).append(Component.literal(" ")).append(noButton));
+        player.sendSystemMessage(Component.literal("Type /locatefixerconfirm yes or /locatefixerconfirm no. Auto-no in 30 seconds."));
+    }
+
     private static final class CountdownTask implements Runnable {
         private final ServerLevel level;
         private final ServerPlayer player;
@@ -232,12 +313,15 @@ public final class LocateTeleportHandler {
             }
 
             level.getServer().execute(() -> {
+                boolean waitingForConfirmation = false;
                 try {
                     if (!player.isRemoved()) {
                         BlockPos safePos = findSafeTeleportPosition(level, targetPos);
                         BlockPos finalPos = findSafeTeleportPosition(level, safePos);
                         if (!isSafePosition(level, finalPos)) {
-                            throw new IllegalStateException("No safe destination found after ray-trace validation.");
+                            requestUnsafeTeleportConfirmation(level, player, forcedChunks, targetPos, teleportAction);
+                            waitingForConfirmation = true;
+                            return;
                         }
                         sendActionBar(player, Component.literal("✅ Destination ready."));
                         teleportAction.accept(finalPos);
@@ -245,7 +329,9 @@ public final class LocateTeleportHandler {
                 } catch (Exception e) {
                     if (!player.isRemoved()) player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
                 } finally {
-                    releaseChunks(level, forcedChunks);
+                    if (!waitingForConfirmation) {
+                        releaseChunks(level, forcedChunks);
+                    }
                 }
             });
             cancelFuture();
@@ -267,5 +353,17 @@ public final class LocateTeleportHandler {
 
     private static void sendActionBar(ServerPlayer player, Component message) {
         player.displayClientMessage(message, true);
+    }
+
+    private record PendingUnsafeTeleport(ServerLevel level,
+                                         List<ChunkPos> forcedChunks,
+                                         BlockPos unsafeTarget,
+                                         Consumer<BlockPos> teleportAction,
+                                         ScheduledFuture<?> timeoutFuture) {
+        private void cancelTimeout() {
+            if (timeoutFuture != null && !timeoutFuture.isCancelled()) {
+                timeoutFuture.cancel(false);
+            }
+        }
     }
 }
