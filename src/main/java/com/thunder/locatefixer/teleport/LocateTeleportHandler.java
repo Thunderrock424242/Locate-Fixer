@@ -63,9 +63,23 @@ public final class LocateTeleportHandler {
     }
 
     public static BlockPos findSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
-        if (level.getBiome(targetPos).is(CAVE_BIOME_TAG)) {
-            return findCaveSafePosition(level, targetPos);
+        if (isSafePosition(level, targetPos)) {
+            return targetPos;
         }
+
+        // Prefer a safe spot near the located Y before any global surface fallback.
+        BlockPos nearTarget = findNearestSafePositionAroundY(level, targetPos);
+        if (nearTarget != null) {
+            return nearTarget;
+        }
+
+        if (level.getBiome(targetPos).is(CAVE_BIOME_TAG)) {
+            BlockPos caveCandidate = findCaveSafePosition(level, targetPos);
+            if (!caveCandidate.equals(targetPos) || isSafePosition(level, caveCandidate)) {
+                return caveCandidate;
+            }
+        }
+
         return findSurfaceSafePosition(level, targetPos);
     }
 

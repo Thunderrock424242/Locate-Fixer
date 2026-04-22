@@ -566,7 +566,8 @@ public class AsyncLocateHandler {
     }
 
     private static BlockPos locateTeleportTarget(ServerLevel level, BlockPos locatedPos) {
-        return LocateTeleportHandler.findSafeTeleportPosition(level, locatedPos);
+        int y = Mth.clamp(locatedPos.getY(), level.getMinBuildHeight(), level.getMaxBuildHeight() - 1);
+        return new BlockPos(locatedPos.getX(), y, locatedPos.getZ());
     }
 
     /**
