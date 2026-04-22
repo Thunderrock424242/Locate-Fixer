@@ -63,9 +63,23 @@ public final class LocateTeleportHandler {
     }
 
     public static BlockPos findSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
-        if (level.getBiome(targetPos).is(CAVE_BIOME_TAG)) {
-            return findCaveSafePosition(level, targetPos);
+        if (isSafePosition(level, targetPos)) {
+            return targetPos;
         }
+
+        // Prefer a safe spot near the located Y before any global surface fallback.
+        BlockPos nearTarget = findNearestSafePositionAroundY(level, targetPos);
+        if (nearTarget != null) {
+            return nearTarget;
+        }
+
+        if (level.getBiome(targetPos).is(CAVE_BIOME_TAG)) {
+            BlockPos caveCandidate = findCaveSafePosition(level, targetPos);
+            if (!caveCandidate.equals(targetPos) || isSafePosition(level, caveCandidate)) {
+                return caveCandidate;
+            }
+        }
+
         return findSurfaceSafePosition(level, targetPos);
     }
 
@@ -103,10 +117,6 @@ public final class LocateTeleportHandler {
         return true;
     }
 
-    /**
-     * OPTIMIZED: Uses downward ray-tracing to find the true surface,
-     * ensuring players don't spawn inside decorations or transparent blocks.
-     */
     private static BlockPos findSurfaceSafePosition(ServerLevel level, BlockPos targetPos) {
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos(targetPos.getX(), level.getMaxBuildHeight(), targetPos.getZ());
 
@@ -124,6 +134,32 @@ public final class LocateTeleportHandler {
         }
 
         return targetPos; // Fallback to original position if no surface found
+    }
+
+    private static BlockPos findNearestSafePositionAroundY(ServerLevel level, BlockPos targetPos) {
+        int minY = level.getMinBuildHeight() + 1;
+        int maxY = level.getMaxBuildHeight() - SAFE_AREA_HEIGHT;
+        int centerY = Math.max(minY, Math.min(maxY, targetPos.getY()));
+
+        int maxRange = Math.max(SAFE_SEARCH_UP, SAFE_SEARCH_DOWN);
+        for (int vertical = 0; vertical <= maxRange; vertical++) {
+            if (vertical == 0) {
+                BlockPos sameY = findCaveSafePositionAtYOffset(level, targetPos.atY(centerY), 0);
+                if (sameY != null) return sameY;
+                continue;
+            }
+
+            if (vertical <= SAFE_SEARCH_UP && centerY + vertical <= maxY) {
+                BlockPos above = findCaveSafePositionAtYOffset(level, targetPos.atY(centerY), vertical);
+                if (above != null) return above;
+            }
+
+            if (vertical <= SAFE_SEARCH_DOWN && centerY - vertical >= minY) {
+                BlockPos below = findCaveSafePositionAtYOffset(level, targetPos.atY(centerY), -vertical);
+                if (below != null) return below;
+            }
+        }
+        return null;
     }
 
     private static BlockPos findCaveSafePosition(ServerLevel level, BlockPos targetPos) {
