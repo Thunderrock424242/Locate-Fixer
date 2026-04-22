@@ -72,6 +72,7 @@ public class locatefixer {
         LocateDimensionCommand.register(dispatcher);
         LocateFixerNearestCommand.register(dispatcher);
         LocateFixerCustomStructureCommand.register(dispatcher);
+        LocateFixerConfirmCommand.register(dispatcher);
     }
 
     private void onConfigLoad(ModConfigEvent.Loading event) {
