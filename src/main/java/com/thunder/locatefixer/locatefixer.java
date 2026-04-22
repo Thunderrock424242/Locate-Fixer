@@ -87,6 +87,10 @@ public class locatefixer {
         } catch (IllegalStateException e) {
             return false;
         }
+        LocateFixerLastDeathCommand.register(dispatcher);
+        BaseHomeCommand.register(dispatcher);
+        LocateBaseCommand.register(dispatcher);
+        LocateFixerCustomStructureCommand.register(dispatcher);
     }
 
     private void onConfigLoad(ModConfigEvent.Loading event) {
