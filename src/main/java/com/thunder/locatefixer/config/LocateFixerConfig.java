@@ -26,8 +26,6 @@ public final class LocateFixerConfig {
         public final ModConfigSpec.DoubleValue biomeSampleRadiusMultiplier;
         public final ModConfigSpec.DoubleValue biomeSampleStepMultiplier;
         public final ModConfigSpec.IntValue poiSearchRadius;
-        public final ModConfigSpec.BooleanValue enableBaseHomeCommands;
-        public final ModConfigSpec.BooleanValue enableRecentDeathCommand;
         public final ModConfigSpec.BooleanValue enableNearestCommand;
 
         private ServerConfig(ModConfigSpec.Builder builder) {
@@ -52,12 +50,6 @@ public final class LocateFixerConfig {
             biomeSampleStepMultiplier = builder
                     .comment("Multiplier applied to the computed biome sample step to reduce sampling frequency.")
                     .defineInRange("biomeSampleStepMultiplier", 1.75D, 1.0D, 8.0D);
-            enableBaseHomeCommands = builder
-                    .comment("Whether /base and /home commands are registered and usable.")
-                    .define("enableBaseHomeCommands", false);
-            enableRecentDeathCommand = builder
-                    .comment("Whether /locate lastdeath is registered and usable.")
-                    .define("enableRecentDeathCommand", false);
             builder.pop();
             enableNearestCommand = builder
                     .comment("Whether the /locate nearest command is registered and usable.")
