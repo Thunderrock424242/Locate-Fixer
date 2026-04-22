@@ -24,6 +24,8 @@ import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public final class LocateDimensionCommand {
     private static final int RANDOM_COORD_RANGE = 25000;
@@ -43,16 +45,27 @@ public final class LocateDimensionCommand {
                         .then(Commands.argument("dimension", DimensionArgument.dimension())
                                 .executes(ctx -> execute(ctx.getSource(), DimensionArgument.getDimension(ctx, "dimension")))
                                 .then(Commands.argument("biome", ResourceLocationArgument.id())
-                                        .suggests((ctx, builder) -> {
-                                            Registry<Biome> biomes = ctx.getSource().getLevel().registryAccess()
-                                                    .registryOrThrow(Registries.BIOME);
-                                            return SharedSuggestionProvider.suggestResource(biomes.keySet(), builder);
-                                        })
+                                        .suggests((ctx, builder) -> SharedSuggestionProvider.suggestResource(
+                                                getBiomeSuggestionsForDimension(DimensionArgument.getDimension(ctx, "dimension")),
+                                                builder
+                                        ))
                                         .executes(ctx -> execute(
                                                 ctx.getSource(),
                                                 DimensionArgument.getDimension(ctx, "dimension"),
                                                 ResourceLocationArgument.getId(ctx, "biome")
                                         ))))));
+    }
+
+    private static Set<ResourceLocation> getBiomeSuggestionsForDimension(ServerLevel targetLevel) {
+        Registry<Biome> biomeRegistry = targetLevel.registryAccess().registryOrThrow(Registries.BIOME);
+        return targetLevel.getChunkSource()
+                .getGenerator()
+                .getBiomeSource()
+                .possibleBiomes()
+                .stream()
+                .map(holder -> holder.unwrapKey().map(ResourceKey::location).orElse(null))
+                .filter(resourceLocation -> resourceLocation != null && biomeRegistry.containsKey(resourceLocation))
+                .collect(Collectors.toSet());
     }
 
     private static int execute(CommandSourceStack source, ServerLevel targetLevel) throws CommandSyntaxException {

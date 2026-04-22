@@ -11,7 +11,6 @@ import net.neoforged.neoforge.common.Tags;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.tags.FluidTags;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -66,19 +65,27 @@ public final class LocateTeleportHandler {
         return findSurfaceSafePosition(level, targetPos);
     }
 
+    /**
+     * OPTIMIZED: Uses downward ray-tracing to find the true surface,
+     * ensuring players don't spawn inside decorations or transparent blocks.
+     */
     private static BlockPos findSurfaceSafePosition(ServerLevel level, BlockPos targetPos) {
-        if (isSafePosition(level, targetPos)) {
-            return targetPos;
-        }
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos(targetPos.getX(), level.getMaxBuildHeight(), targetPos.getZ());
 
-        for (int offset = 1; offset <= SAFE_SEARCH_UP; offset++) {
-            BlockPos up = targetPos.above(offset);
-            if (isSafePosition(level, up)) {
-                return up;
+        while (cursor.getY() > level.getMinBuildHeight()) {
+            BlockState state = level.getBlockState(cursor);
+
+            // If we hit a solid block that isn't air, liquid, or leaves
+            if (!state.isAir() && state.getFluidState().isEmpty() && !state.is(net.minecraft.tags.BlockTags.LEAVES)) {
+                BlockPos ground = cursor.above().immutable();
+                if (isSafePosition(level, ground)) {
+                    return ground;
+                }
             }
+            cursor.move(net.minecraft.core.Direction.DOWN);
         }
 
-        return targetPos;
+        return targetPos; // Fallback to original position if no surface found
     }
 
     private static BlockPos findCaveSafePosition(ServerLevel level, BlockPos targetPos) {
@@ -90,24 +97,18 @@ public final class LocateTeleportHandler {
         for (int vertical = 0; vertical <= maxRange; vertical++) {
             if (vertical == 0) {
                 BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, 0);
-                if (match != null) {
-                    return match;
-                }
+                if (match != null) return match;
                 continue;
             }
 
             if (vertical <= SAFE_SEARCH_UP) {
                 BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, vertical);
-                if (match != null) {
-                    return match;
-                }
+                if (match != null) return match;
             }
 
             if (vertical <= SAFE_SEARCH_DOWN) {
                 BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, -vertical);
-                if (match != null) {
-                    return match;
-                }
+                if (match != null) return match;
             }
         }
 
@@ -119,13 +120,9 @@ public final class LocateTeleportHandler {
         for (int radius = 0; radius <= SAFE_SEARCH_HORIZONTAL; radius++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
-                    if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) {
-                        continue;
-                    }
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
                     BlockPos candidate = base.offset(dx, 0, dz);
-                    if (isSafePosition(level, candidate)) {
-                        return candidate;
-                    }
+                    if (isSafePosition(level, candidate)) return candidate;
                 }
             }
         }
@@ -146,8 +143,8 @@ public final class LocateTeleportHandler {
     private static List<ChunkPos> forceChunks(ServerLevel level, BlockPos center) {
         List<ChunkPos> forced = new ArrayList<>();
         ChunkPos centerChunk = new ChunkPos(center);
-        for (int dx = -LocateTeleportHandler.PRELOAD_RADIUS_CHUNKS; dx <= LocateTeleportHandler.PRELOAD_RADIUS_CHUNKS; dx++) {
-            for (int dz = -LocateTeleportHandler.PRELOAD_RADIUS_CHUNKS; dz <= LocateTeleportHandler.PRELOAD_RADIUS_CHUNKS; dz++) {
+        for (int dx = -PRELOAD_RADIUS_CHUNKS; dx <= PRELOAD_RADIUS_CHUNKS; dx++) {
+            for (int dz = -PRELOAD_RADIUS_CHUNKS; dz <= PRELOAD_RADIUS_CHUNKS; dz++) {
                 ChunkPos chunkPos = new ChunkPos(centerChunk.x + dx, centerChunk.z + dz);
                 level.setChunkForced(chunkPos.x, chunkPos.z, true);
                 forced.add(chunkPos);
@@ -175,30 +172,20 @@ public final class LocateTeleportHandler {
     private static boolean isSafePosition(ServerLevel level, BlockPos pos) {
         int minY = level.getMinBuildHeight();
         int maxY = level.getMaxBuildHeight() - SAFE_AREA_HEIGHT;
-        if (pos.getY() <= minY || pos.getY() > maxY) {
-            return false;
-        }
+        if (pos.getY() <= minY || pos.getY() > maxY) return false;
 
-        // Use a single reusable mutable cursor for all block lookups — avoids allocating
-        // a new BlockPos object for every candidate position check.
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 
         cursor.set(pos.getX(), pos.getY() - 1, pos.getZ());
         BlockState belowState = level.getBlockState(cursor);
-        if (!belowState.isFaceSturdy(level, cursor, net.minecraft.core.Direction.UP)) {
-            return false;
-        }
-        if (belowState.getFluidState().is(net.minecraft.tags.FluidTags.LAVA)) {
-            return false;
-        }
+        if (!belowState.isFaceSturdy(level, cursor, net.minecraft.core.Direction.UP)) return false;
+        if (belowState.getFluidState().is(net.minecraft.tags.FluidTags.LAVA)) return false;
 
         for (int dx = -SAFE_AREA_RADIUS; dx <= SAFE_AREA_RADIUS; dx++) {
             for (int dz = -SAFE_AREA_RADIUS; dz <= SAFE_AREA_RADIUS; dz++) {
                 for (int dy = 0; dy < SAFE_AREA_HEIGHT; dy++) {
                     cursor.set(pos.getX() + dx, pos.getY() + dy, pos.getZ() + dz);
-                    if (!level.isEmptyBlock(cursor)) {
-                        return false;
-                    }
+                    if (!level.isEmptyBlock(cursor)) return false;
                 }
             }
         }
@@ -239,10 +226,8 @@ public final class LocateTeleportHandler {
             }
 
             if (secondsLeft > 0) {
-                int displaySeconds = secondsLeft;
-                secondsLeft--;
-                level.getServer().execute(() ->
-                        player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds + "...")));
+                int displaySeconds = secondsLeft--;
+                level.getServer().execute(() -> player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds + "...")));
                 return;
             }
 
@@ -254,10 +239,7 @@ public final class LocateTeleportHandler {
                         teleportAction.accept(safePos);
                     }
                 } catch (Exception e) {
-                    if (!player.isRemoved()) {
-                        player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
-                        sendActionBar(player, Component.literal("❌ Teleport failed."));
-                    }
+                    if (!player.isRemoved()) player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
                 } finally {
                     releaseChunks(level, forcedChunks);
                 }
@@ -267,9 +249,7 @@ public final class LocateTeleportHandler {
 
         private void cancelAndRelease(String message) {
             level.getServer().execute(() -> {
-                if (!player.isRemoved()) {
-                    player.sendSystemMessage(Component.literal(message));
-                }
+                if (!player.isRemoved()) player.sendSystemMessage(Component.literal(message));
                 releaseChunks(level, forcedChunks);
             });
             cancelFuture();
@@ -277,9 +257,7 @@ public final class LocateTeleportHandler {
 
         private void cancelFuture() {
             ScheduledFuture<?> f = futureRef.get();
-            if (f != null && !f.isCancelled()) {
-                f.cancel(false);
-            }
+            if (f != null && !f.isCancelled()) f.cancel(false);
         }
     }
 
