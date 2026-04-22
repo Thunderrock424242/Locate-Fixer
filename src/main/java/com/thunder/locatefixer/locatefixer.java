@@ -2,6 +2,7 @@ package com.thunder.locatefixer;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.thunder.locatefixer.command.*;
+import com.thunder.locatefixer.api.StructureLocatorRegistry;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.integration.WorldEditHook;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
