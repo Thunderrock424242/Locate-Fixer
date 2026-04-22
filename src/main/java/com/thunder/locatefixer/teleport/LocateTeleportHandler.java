@@ -27,7 +27,7 @@ import java.util.function.Consumer;
 public final class LocateTeleportHandler {
 
     private static final int COUNTDOWN_SECONDS = 5;
-    private static final int PRELOAD_RADIUS_CHUNKS = 2;
+    private static final int PRELOAD_RADIUS_CHUNKS = 1;
     private static final int SAFE_AREA_RADIUS = 1;
     private static final int SAFE_AREA_HEIGHT = 2;
     private static final int SAFE_SEARCH_UP = 24;
@@ -52,8 +52,7 @@ public final class LocateTeleportHandler {
         player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
         sendActionBar(player, Component.literal("📦 Preloading " + forcedChunks.size() + " chunks..."));
 
-        BlockPos safePos = findSafeTeleportPosition(level, targetPos);
-        scheduleCountdown(level, player, forcedChunks, safePos, teleportAction);
+        scheduleCountdown(level, player, forcedChunks, targetPos, teleportAction);
     }
 
     public static BlockPos findSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
@@ -136,9 +135,9 @@ public final class LocateTeleportHandler {
     private static void scheduleCountdown(ServerLevel level,
                                           ServerPlayer player,
                                           List<ChunkPos> forcedChunks,
-                                          BlockPos safePos,
+                                          BlockPos targetPos,
                                           Consumer<BlockPos> teleportAction) {
-        CountdownTask task = new CountdownTask(level, player, forcedChunks, safePos, teleportAction);
+        CountdownTask task = new CountdownTask(level, player, forcedChunks, targetPos, teleportAction);
         // Store the future in the task via AtomicReference before the first tick can fire
         ScheduledFuture<?> future = PRELOAD_EXECUTOR.scheduleAtFixedRate(task, 0L, 1L, TimeUnit.SECONDS);
         task.attachFuture(future);
@@ -210,7 +209,7 @@ public final class LocateTeleportHandler {
         private final ServerLevel level;
         private final ServerPlayer player;
         private final List<ChunkPos> forcedChunks;
-        private final BlockPos safePos;
+        private final BlockPos targetPos;
         private final Consumer<BlockPos> teleportAction;
         private int secondsLeft;
         private final AtomicReference<ScheduledFuture<?>> futureRef = new AtomicReference<>();
@@ -218,12 +217,12 @@ public final class LocateTeleportHandler {
         private CountdownTask(ServerLevel level,
                               ServerPlayer player,
                               List<ChunkPos> forcedChunks,
-                              BlockPos safePos,
+                              BlockPos targetPos,
                               Consumer<BlockPos> teleportAction) {
             this.level = level;
             this.player = player;
             this.forcedChunks = forcedChunks;
-            this.safePos = safePos;
+            this.targetPos = targetPos;
             this.teleportAction = teleportAction;
             this.secondsLeft = COUNTDOWN_SECONDS;
         }
@@ -250,6 +249,7 @@ public final class LocateTeleportHandler {
             level.getServer().execute(() -> {
                 try {
                     if (!player.isRemoved()) {
+                        BlockPos safePos = findSafeTeleportPosition(level, targetPos);
                         sendActionBar(player, Component.literal("✅ Destination ready."));
                         teleportAction.accept(safePos);
                     }
