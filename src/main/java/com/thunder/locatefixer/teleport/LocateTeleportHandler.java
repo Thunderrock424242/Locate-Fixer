@@ -235,8 +235,12 @@ public final class LocateTeleportHandler {
                 try {
                     if (!player.isRemoved()) {
                         BlockPos safePos = findSafeTeleportPosition(level, targetPos);
+                        BlockPos finalPos = findSafeTeleportPosition(level, safePos);
+                        if (!isSafePosition(level, finalPos)) {
+                            throw new IllegalStateException("No safe destination found after ray-trace validation.");
+                        }
                         sendActionBar(player, Component.literal("✅ Destination ready."));
-                        teleportAction.accept(safePos);
+                        teleportAction.accept(finalPos);
                     }
                 } catch (Exception e) {
                     if (!player.isRemoved()) player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
