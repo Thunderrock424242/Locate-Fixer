@@ -95,6 +95,7 @@ public class AsyncLocateHandler {
                 HolderSet<Structure> holders = LocateCommandInvoker.invokeGetHolders(structure, registry)
                         .orElseThrow(() -> LocateCommandAccessor.getStructureInvalid().create(structure.asPrintable()));
                 String canonicalTarget = canonicalStructureTarget(structure, holders);
+                Set<String> allowedStructureIds = resolvedStructureIds(holders);
 
                 LocateCacheKey cacheKey = LocateCacheKey.of(level, canonicalTarget, origin, settings.cacheGranularity());
                 LocateCacheEntry<Structure> cacheEntry = getValidCacheEntry(STRUCTURE_CACHE, cacheKey, settings.cacheDurationMs());
@@ -127,6 +128,12 @@ public class AsyncLocateHandler {
                     if (result != null) {
                         BlockPos pos = result.getFirst();
                         Holder<Structure> holder = result.getSecond();
+                        String foundId = holder.getRegisteredName();
+                        if (!allowedStructureIds.contains(foundId)) {
+                            LOGGER.warn("[LocateFixer] Ignoring locate candidate '{}' for request '{}'; resolved allowed ids={}",
+                                    foundId, canonicalTarget, allowedStructureIds);
+                            continue;
+                        }
 
                         putWithEviction(STRUCTURE_CACHE, cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
 
@@ -593,6 +600,17 @@ public class AsyncLocateHandler {
                 .reduce((a, b) -> a + "," + b)
                 .map(ids -> "set:" + ids)
                 .orElse(requested.asPrintable());
+    }
+
+    private static Set<String> resolvedStructureIds(HolderSet<Structure> holders) {
+        Set<String> ids = new HashSet<>();
+        for (Holder<Structure> holder : holders) {
+            String id = holder.getRegisteredName();
+            if (id != null) {
+                ids.add(id);
+            }
+        }
+        return ids;
     }
 
     private static void sendRingProgressUpdate(ServerLevel level, CommandSourceStack source,
