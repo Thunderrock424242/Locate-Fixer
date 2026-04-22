@@ -69,6 +69,11 @@ public class StructureLocatorRegistry {
         return Collections.unmodifiableSet(new TreeSet<>(LOCATORS.keySet()));
     }
 
+
+    public static boolean hasRegisteredStructures() {
+        return !LOCATORS.isEmpty();
+    }
+
     public static boolean isRegistered(String id) {
         return LOCATORS.containsKey(normalizeId(id));
     }

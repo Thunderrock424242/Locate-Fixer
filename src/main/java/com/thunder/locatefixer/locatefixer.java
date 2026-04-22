@@ -2,6 +2,7 @@ package com.thunder.locatefixer;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.thunder.locatefixer.command.*;
+import com.thunder.locatefixer.api.StructureLocatorRegistry;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.integration.WorldEditHook;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
@@ -72,7 +73,9 @@ public class locatefixer {
         if (LocateFixerConfig.SERVER.enableNearestCommand.get()) {
             LocateFixerNearestCommand.register(dispatcher);
         }
-        LocateFixerCustomStructureCommand.register(dispatcher);
+        if (StructureLocatorRegistry.hasRegisteredStructures()) {
+            LocateFixerCustomStructureCommand.register(dispatcher);
+        }
     }
 
     private void onConfigLoad(ModConfigEvent.Loading event) {
