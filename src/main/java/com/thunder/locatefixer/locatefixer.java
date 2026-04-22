@@ -69,9 +69,24 @@ public class locatefixer {
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
         LocateFixerSchematicCommand.register(dispatcher);
         LocateDimensionCommand.register(dispatcher);
-        LocateFixerLastDeathCommand.register(dispatcher);
-        BaseHomeCommand.register(dispatcher);
-        LocateBaseCommand.register(dispatcher);
+        if (isEnabled(LocateFixerConfig.SERVER.enableRecentDeathCommand)) {
+            LocateFixerLastDeathCommand.register(dispatcher);
+        }
+        if (isEnabled(LocateFixerConfig.SERVER.enableBaseHomeCommands)) {
+            BaseHomeCommand.register(dispatcher);
+            LocateBaseCommand.register(dispatcher);
+        }
+        if (isEnabled(LocateFixerConfig.SERVER.enableNearestCommand)) {
+            LocateFixerNearestCommand.register(dispatcher);
+        }
+    }
+
+    private static boolean isEnabled(net.neoforged.neoforge.common.ModConfigSpec.BooleanValue setting) {
+        try {
+            return setting.get();
+        } catch (IllegalStateException e) {
+            return false;
+        }
     }
 
     private void onConfigLoad(ModConfigEvent.Loading event) {
