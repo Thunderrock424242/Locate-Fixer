@@ -67,13 +67,4 @@ public class LocateCommandMixin {
         AsyncLocateHandler.locatePoiAsync(source, poiType, origin, level);
         cir.setReturnValue(1); // fake return — actual logic runs async
     }
-
-    private static boolean isLocateFeaturesEnabled() {
-        try {
-            return LocateFixerConfig.SERVER.enableLocateFeatures.get();
-        } catch (IllegalStateException ignored) {
-            return false;
-        }
-    }
-
 }

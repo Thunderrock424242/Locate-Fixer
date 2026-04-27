@@ -71,6 +71,7 @@ public class locatefixer {
         LocateFixerSchematicCommand.register(dispatcher);
         LocateDimensionCommand.register(dispatcher);
         LocateFixerNearestCommand.register(dispatcher);
+        LocateFixerFeatureCommand.register(dispatcher);
         LocateFixerCustomStructureCommand.register(dispatcher);
         LocateFixerConfirmCommand.register(dispatcher);
     }
