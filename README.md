@@ -18,6 +18,7 @@ Locate Fixer is configurable through the generated `config/locatefixer-server.to
 - `locate.cacheDurationMinutes` — How long locate results stay cached before expiring.
 - `locate.cacheChunkGranularity` — How broadly cached results can be reused around the original request.
 - `locate.biomeSampleRadiusMultiplier` & `locate.biomeSampleStepMultiplier` — Tune biome sampling density for faster or more precise biome scans.
+- `locate.enableLocateFeatures` — Enables Locate Fixer async handling for `/locate structure|biome|poi` (defaults to `false`).
 - `poi.poiSearchRadius` — Maximum radius the mod uses when scanning for points of interest.
 
 Changes can be reloaded on the fly with standard NeoForge config reloads—no restart required.

@@ -1,5 +1,6 @@
 package com.thunder.locatefixer.mixin;
 
+import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.ResourceOrTagArgument;
@@ -25,6 +26,9 @@ public class LocateCommandMixin {
             ResourceOrTagKeyArgument.Result<Structure> structure,
             CallbackInfoReturnable<Integer> cir
     ) {
+        if (!isLocateFeaturesEnabled()) {
+            return;
+        }
         ServerLevel level = source.getLevel();
         BlockPos origin = BlockPos.containing(source.getPosition());
 
@@ -38,6 +42,9 @@ public class LocateCommandMixin {
             ResourceOrTagArgument.Result<Biome> biome,
             CallbackInfoReturnable<Integer> cir
     ) {
+        if (!isLocateFeaturesEnabled()) {
+            return;
+        }
         ServerLevel level = source.getLevel();
         BlockPos origin = BlockPos.containing(source.getPosition());
 
@@ -51,11 +58,22 @@ public class LocateCommandMixin {
             ResourceOrTagArgument.Result<PoiType> poiType,
             CallbackInfoReturnable<Integer> cir
     ) {
+        if (!isLocateFeaturesEnabled()) {
+            return;
+        }
         ServerLevel level = source.getLevel();
         BlockPos origin = BlockPos.containing(source.getPosition());
 
         AsyncLocateHandler.locatePoiAsync(source, poiType, origin, level);
         cir.setReturnValue(1); // fake return — actual logic runs async
+    }
+
+    private static boolean isLocateFeaturesEnabled() {
+        try {
+            return LocateFixerConfig.SERVER.enableLocateFeatures.get();
+        } catch (IllegalStateException ignored) {
+            return false;
+        }
     }
 
 }

@@ -31,6 +31,7 @@ All values listed below match the defaults that ship with the mod.
 | `cacheChunkGranularity` | `8` | Chunk granularity used when caching locate results. Higher numbers share cached results across a wider area; lower numbers increase precision. Valid range is 1–128. |
 | `biomeSampleRadiusMultiplier` | `1.5` | Multiplier applied to the computed biome sample radius to reduce sample density. Increase it to check fewer sample points per ring (minimum 1.0, maximum 8.0). |
 | `biomeSampleStepMultiplier` | `1.75` | Multiplier applied to the computed biome sample step to reduce sample density. Higher values increase the step size between samples (minimum 1.0, maximum 8.0). |
+| `enableLocateFeatures` | `false` | Enables Locate Fixer async locate handling for `/locate structure`, `/locate biome`, and `/locate poi`. When `false`, vanilla locate behavior is used instead. |
 
 ### `[poi]`
 
