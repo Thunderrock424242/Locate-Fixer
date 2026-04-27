@@ -14,7 +14,7 @@ import net.minecraft.server.level.ServerLevel;
 import java.util.Locale;
 
 /**
- * Adds a dedicated `/locate customstructure <id>` branch for custom structures
+ * Adds a dedicated `/xlocate customstructure <id>` branch for custom structures
  * registered in StructureLocatorRegistry. This avoids conflicts with vanilla
  * `/locate structure <id>` parsing.
  */
@@ -24,7 +24,7 @@ public final class LocateFixerCustomStructureCommand {
     }
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-        dispatcher.register(Commands.literal("locate")
+        dispatcher.register(Commands.literal("xlocate")
                 // Register under a dedicated subcommand so vanilla
                 // `/locate structure <vanilla_id>` is never shadowed.
                 .then(Commands.literal("customstructure")
