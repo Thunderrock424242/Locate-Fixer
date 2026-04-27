@@ -6,7 +6,7 @@ This document explains how another mod can expose non-vanilla structures to Loca
 If your mod places structures through custom logic (instead of vanilla structure registration), you can register a custom locator so admins can run:
 
 ```mcfunction
-/locate structure <your_mod:structure_id>
+/xlocate customstructure <your_mod:structure_id>
 ```
 
 ---
@@ -79,7 +79,7 @@ StructureLocatorRegistry.register("mymod:sky_fortress", (level, origin, maxRadiu
 Once registered, server operators can run:
 
 ```mcfunction
-/locate structure mymod:sky_fortress
+/xlocate customstructure mymod:sky_fortress
 ```
 
 - Suggestions for known ids are provided in command autocomplete.
