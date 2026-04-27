@@ -18,6 +18,7 @@ Locate Fixer is configurable through the generated `config/locatefixer-server.to
 - `locate.cacheDurationMinutes` — How long locate results stay cached before expiring.
 - `locate.cacheChunkGranularity` — How broadly cached results can be reused around the original request.
 - `locate.biomeSampleRadiusMultiplier` & `locate.biomeSampleStepMultiplier` — Tune biome sampling density for faster or more precise biome scans.
+- `locate.enableFeatureLocateCommand` — Enables `/locate feature <placed_feature_id>` for finding nearby biomes that can generate that placed feature (defaults to `false`).
 - `poi.poiSearchRadius` — Maximum radius the mod uses when scanning for points of interest.
 
 Changes can be reloaded on the fly with standard NeoForge config reloads—no restart required.
@@ -26,8 +27,9 @@ Changes can be reloaded on the fly with standard NeoForge config reloads—no re
 1. Install Locate Fixer on the server (optional but recommended on clients for consistent chat messages).
 2. Run `/locate` or `/locate biome` as usual. Progress messages show which radius is currently scanning.
 3. For multiple nearest matches, use `/locate nearest structure <count>` or `/locate nearest biome <count>`.
-4. Use `/tp` immediately after; the mod preloads the target area and teleports you safely once it’s chunk-loaded.
-5. Drop `.schem` files into `config/worldedit/schematics/` to make them discoverable via `/locate schematic <name>`.
+4. (Optional, config-gated) Use `/locate feature <namespace:id>` to find nearby areas whose biome settings include that placed feature.
+5. Use `/tp` immediately after; the mod preloads the target area and teleports you safely once it’s chunk-loaded.
+6. Drop `.schem` files into `config/worldedit/schematics/` to make them discoverable via `/locate schematic <name>`.
 
 ## API Integration for Other Mods
 If your mod places structures with custom code, you can register a Locate Fixer provider so `/locate structure <id>` can find them. See `API_DOCUMENTATION.md` for setup steps and examples.
