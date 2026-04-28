@@ -44,7 +44,9 @@ public abstract class TeleportCommandMixin {
                                                   Coordinates rotation,
                                                   @Coerce @Nullable Object facing, // Changed from TeleportCommandLookAtAccessor to Object
                                                   CallbackInfoReturnable<Integer> cir) throws CommandSyntaxException {
-        if (targets.size() != 1 || rotation != null || facing != null) {
+        // Vanilla /tp often passes a non-null rotation object even when the player
+        // did not provide yaw/pitch, so do not gate preload logic on rotation here.
+        if (targets.size() != 1 || facing != null) {
             return;
         }
 
