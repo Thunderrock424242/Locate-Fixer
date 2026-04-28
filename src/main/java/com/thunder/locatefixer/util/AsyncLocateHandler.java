@@ -628,6 +628,8 @@ public class AsyncLocateHandler {
         long remainingSeconds = TimeUnit.MILLISECONDS.toSeconds(remainingMs);
         String etaText = remainingSeconds > 0 ? " ⏳ ~" + remainingSeconds + "s remaining" : "";
         long approxChunks = approximateChunksInRadius(scanRadius);
+        int completionPercent = Math.max(1, progressPercent);
+        long approxChunksCovered = Math.max(1L, Math.round(approxChunks * (completionPercent / 100.0D)));
         String radiusText = "radius " + scanRadius + " blocks (~" + approxChunks + " chunks)";
         String searchStateText;
         if (scanRadius > 6400) {
@@ -638,7 +640,8 @@ public class AsyncLocateHandler {
         }
 
         level.getServer().execute(() -> source.sendSuccess(() ->
-                Component.literal(searchStateText + " [ring " + step + "/" + totalSteps + ", " + progressPercent + "%]" + etaText), false));
+                Component.literal(searchStateText + " [ring " + step + "/" + totalSteps + ", " + progressPercent + "%, "
+                        + "approx chunks scanned " + approxChunksCovered + "/" + approxChunks + "]" + etaText), false));
     }
 
     private static void sendLocateStartUpdate(ServerLevel level, CommandSourceStack source, String kind,
