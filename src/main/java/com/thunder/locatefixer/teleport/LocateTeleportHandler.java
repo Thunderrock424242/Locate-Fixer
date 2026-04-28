@@ -41,6 +41,7 @@ public final class LocateTeleportHandler {
     private static final int SAFE_SEARCH_HORIZONTAL = 4;
     private static final int UNDERGROUND_SURFACE_THRESHOLD = 8;
     private static final int UNDERGROUND_SURFACE_RADIUS = 6;
+    private static final int SURFACE_FALLBACK_RADIUS = 8;
     private static final int CONFIRM_TIMEOUT_SECONDS = 30;
     private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
     private static final TagKey<Biome> CAVE_BIOME_TAG = Tags.Biomes.IS_CAVE;
@@ -184,7 +185,32 @@ public final class LocateTeleportHandler {
             cursor.move(net.minecraft.core.Direction.DOWN);
         }
 
+        BlockPos nearbySurface = findNearestSafeSurfacePosition(level, targetPos, SURFACE_FALLBACK_RADIUS);
+        if (nearbySurface != null) {
+            return nearbySurface;
+        }
+
         return targetPos; // Fallback to original position if no surface found
+    }
+
+    private static BlockPos findNearestSafeSurfacePosition(ServerLevel level, BlockPos targetPos, int maxRadius) {
+        int maxY = level.getMaxBuildHeight() - SAFE_AREA_HEIGHT;
+        for (int radius = 0; radius <= maxRadius; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
+                    int x = targetPos.getX() + dx;
+                    int z = targetPos.getZ() + dz;
+                    int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+                    int candidateY = Math.min(maxY, surfaceY + 1);
+                    BlockPos candidate = new BlockPos(x, candidateY, z);
+                    if (isSafePosition(level, candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private static BlockPos findNearestSafePositionAroundY(ServerLevel level, BlockPos targetPos) {
