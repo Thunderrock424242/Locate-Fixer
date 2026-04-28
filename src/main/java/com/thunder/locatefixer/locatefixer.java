@@ -73,7 +73,6 @@ public class locatefixer {
         LocateFixerNearestCommand.register(dispatcher);
         LocateFixerFeatureCommand.register(dispatcher);
         LocateFixerCustomStructureCommand.register(dispatcher);
-        LocateFixerConfirmCommand.register(dispatcher);
     }
 
     private void onConfigLoad(ModConfigEvent.Loading event) {
