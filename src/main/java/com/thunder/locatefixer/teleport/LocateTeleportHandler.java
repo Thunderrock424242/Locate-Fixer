@@ -14,6 +14,7 @@ import net.neoforged.neoforge.common.Tags;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +39,8 @@ public final class LocateTeleportHandler {
     private static final int SAFE_SEARCH_UP = 24;
     private static final int SAFE_SEARCH_DOWN = 12;
     private static final int SAFE_SEARCH_HORIZONTAL = 4;
+    private static final int UNDERGROUND_SURFACE_THRESHOLD = 8;
+    private static final int UNDERGROUND_SURFACE_RADIUS = 6;
     private static final int CONFIRM_TIMEOUT_SECONDS = 30;
     private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
     private static final TagKey<Biome> CAVE_BIOME_TAG = Tags.Biomes.IS_CAVE;
@@ -67,6 +70,13 @@ public final class LocateTeleportHandler {
             return targetPos;
         }
 
+        if (isUndergroundTarget(level, targetPos)) {
+            BlockPos undergroundSafe = findSafePositionForUndergroundTarget(level, targetPos);
+            if (undergroundSafe != null) {
+                return undergroundSafe;
+            }
+        }
+
         // Prefer a safe spot near the located Y before any global surface fallback.
         BlockPos nearTarget = findNearestSafePositionAroundY(level, targetPos);
         if (nearTarget != null) {
@@ -81,6 +91,42 @@ public final class LocateTeleportHandler {
         }
 
         return findSurfaceSafePosition(level, targetPos);
+    }
+
+    private static boolean isUndergroundTarget(ServerLevel level, BlockPos targetPos) {
+        int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, targetPos.getX(), targetPos.getZ());
+        return targetPos.getY() <= surfaceY - UNDERGROUND_SURFACE_THRESHOLD;
+    }
+
+    private static BlockPos findSafePositionForUndergroundTarget(ServerLevel level, BlockPos targetPos) {
+        int columnSurfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, targetPos.getX(), targetPos.getZ());
+        int minY = Math.max(level.getMinBuildHeight() + 1, targetPos.getY());
+        int maxY = Math.min(level.getMaxBuildHeight() - SAFE_AREA_HEIGHT, columnSurfaceY + 4);
+
+        for (int y = minY; y <= maxY; y++) {
+            BlockPos candidate = new BlockPos(targetPos.getX(), y, targetPos.getZ());
+            if (isSafePosition(level, candidate)) {
+                return candidate;
+            }
+        }
+
+        for (int radius = 1; radius <= UNDERGROUND_SURFACE_RADIUS; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
+                    int x = targetPos.getX() + dx;
+                    int z = targetPos.getZ() + dz;
+                    int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+                    int candidateY = Math.min(level.getMaxBuildHeight() - SAFE_AREA_HEIGHT, surfaceY + 1);
+                    BlockPos candidate = new BlockPos(x, candidateY, z);
+                    if (isSafePosition(level, candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     public static BlockPos findSurfaceSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
