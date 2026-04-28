@@ -11,6 +11,7 @@ import net.neoforged.neoforge.common.Tags;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,8 +66,18 @@ public final class LocateTeleportHandler {
     }
 
     public static BlockPos findSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
-        // Keep teleport as close as possible to the requested target first, then
-        // fall back to broader biome-specific heuristics.
+        // Prefer a surface spawn for more predictable /locate teleports.
+        BlockPos surface = findPreferredSurfacePosition(level, targetPos);
+        if (surface != null) {
+            return surface;
+        }
+
+        // Fallback: find a cave pocket close to the surface before using deeper scans.
+        BlockPos caveNearSurface = findNearSurfaceCaveSafePosition(level, targetPos);
+        if (caveNearSurface != null) {
+            return caveNearSurface;
+        }
+
         BlockPos nearby = findNearbySafePosition(level, targetPos);
         if (nearby != null) {
             return nearby;
@@ -75,7 +86,8 @@ public final class LocateTeleportHandler {
         if (level.getBiome(targetPos).is(CAVE_BIOME_TAG)) {
             return findCaveSafePosition(level, targetPos);
         }
-        return findSurfaceSafePosition(level, targetPos);
+
+        return targetPos;
     }
 
     public static BlockPos findSurfaceSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
@@ -103,6 +115,44 @@ public final class LocateTeleportHandler {
         }
 
         return targetPos; // Fallback to original position if no surface found
+    }
+
+    private static BlockPos findPreferredSurfacePosition(ServerLevel level, BlockPos targetPos) {
+        for (int radius = 0; radius <= SAFE_SEARCH_HORIZONTAL; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
+                    BlockPos columnTarget = targetPos.offset(dx, 0, dz);
+                    BlockPos surface = findSurfaceSafePosition(level, columnTarget);
+                    if (surface != null && !surface.equals(columnTarget) && isSafePosition(level, surface)) {
+                        return surface;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static BlockPos findNearSurfaceCaveSafePosition(ServerLevel level, BlockPos targetPos) {
+        int caveScanDepth = Math.max(SAFE_SEARCH_DOWN, 20);
+        for (int radius = 0; radius <= SAFE_SEARCH_HORIZONTAL; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
+                    int x = targetPos.getX() + dx;
+                    int z = targetPos.getZ() + dz;
+                    int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+                    int minY = Math.max(level.getMinBuildHeight() + 1, surfaceY - caveScanDepth);
+                    for (int y = surfaceY - 1; y >= minY; y--) {
+                        BlockPos candidate = new BlockPos(x, y, z);
+                        if (isSafePosition(level, candidate)) {
+                            return candidate;
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private static BlockPos findCaveSafePosition(ServerLevel level, BlockPos targetPos) {
