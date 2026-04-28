@@ -67,6 +67,8 @@ public final class LocateTeleportHandler {
         List<ChunkPos> forcedChunks = forceChunks(level, targetPos);
         player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
         sendActionBar(player, Component.literal("📦 Preloading " + forcedChunks.size() + " chunks..."));
+        player.sendSystemMessage(Component.literal("📍 Requested teleport target: "
+                + targetPos.getX() + " " + targetPos.getY() + " " + targetPos.getZ()));
 
         scheduleCountdown(level, player, forcedChunks, targetPos, teleportAction);
     }
@@ -430,7 +432,8 @@ public final class LocateTeleportHandler {
 
             if (secondsLeft > 0) {
                 int displaySeconds = secondsLeft--;
-                level.getServer().execute(() -> player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds + "...")));
+                level.getServer().execute(() -> player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds
+                        + "... (chunks ready: " + forcedChunks.size() + ", safe spot scan pending)")));
                 return;
             }
 
@@ -438,6 +441,7 @@ public final class LocateTeleportHandler {
                 boolean waitingForConfirmation = false;
                 try {
                     if (!player.isRemoved()) {
+                        sendActionBar(player, Component.literal("🧭 Validating safe teleport destination..."));
                         BlockPos safePos = findSafeTeleportPosition(level, targetPos);
                         BlockPos finalPos = findSafeTeleportPosition(level, safePos);
                         if (!isSafePosition(level, finalPos)) {
@@ -445,7 +449,14 @@ public final class LocateTeleportHandler {
                             waitingForConfirmation = true;
                             return;
                         }
+                        int dx = finalPos.getX() - targetPos.getX();
+                        int dy = finalPos.getY() - targetPos.getY();
+                        int dz = finalPos.getZ() - targetPos.getZ();
                         sendActionBar(player, Component.literal("✅ Destination ready."));
+                        player.sendSystemMessage(Component.literal("🛰 Teleport stats: final target "
+                                + finalPos.getX() + " " + finalPos.getY() + " " + finalPos.getZ()
+                                + " (offset from requested target: Δ" + dx + ", Δ" + dy + ", Δ" + dz
+                                + ", forced chunks: " + forcedChunks.size() + ")."));
                         teleportAction.accept(finalPos);
                     }
                 } catch (Exception e) {
