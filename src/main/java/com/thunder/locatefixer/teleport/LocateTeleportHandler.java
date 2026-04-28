@@ -32,6 +32,7 @@ public final class LocateTeleportHandler {
     private static final int SAFE_SEARCH_UP = 24;
     private static final int SAFE_SEARCH_DOWN = 12;
     private static final int SAFE_SEARCH_HORIZONTAL = 4;
+    private static final int PRELOAD_DIAMETER_CHUNKS = (PRELOAD_RADIUS_CHUNKS * 2) + 1;
     private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
     private static final TagKey<Biome> CAVE_BIOME_TAG = Tags.Biomes.IS_CAVE;
 
@@ -48,12 +49,22 @@ public final class LocateTeleportHandler {
                                                 BlockPos targetPos,
                                                 Consumer<BlockPos> teleportAction) {
         List<ChunkPos> forcedChunks = forceChunks(level, targetPos);
-        player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
-        sendActionBar(player, Component.literal("📦 Preloading " + forcedChunks.size() + " chunks..."));
+        ChunkPos targetChunk = new ChunkPos(targetPos);
+        player.sendSystemMessage(Component.literal("📦 Preloading destination chunks around "
+                + "[" + targetChunk.x + ", " + targetChunk.z + "]"
+                + " with radius " + PRELOAD_RADIUS_CHUNKS + " chunk(s)"
+                + " (" + PRELOAD_DIAMETER_CHUNKS + "x" + PRELOAD_DIAMETER_CHUNKS + " grid, " + forcedChunks.size() + " total)."));
+        sendActionBar(player, Component.literal("📦 Chunk preload: 0/" + forcedChunks.size() + " forced (warming up world)..."));
         player.sendSystemMessage(Component.literal("📍 Requested teleport target: "
                 + targetPos.getX() + " " + targetPos.getY() + " " + targetPos.getZ()));
 
         BlockPos safePos = findSafeTeleportPosition(level, targetPos);
+        int offsetX = safePos.getX() - targetPos.getX();
+        int offsetY = safePos.getY() - targetPos.getY();
+        int offsetZ = safePos.getZ() - targetPos.getZ();
+        player.sendSystemMessage(Component.literal("🛰 Teleport safety scan complete: "
+                + safePos.getX() + " " + safePos.getY() + " " + safePos.getZ()
+                + " (offset Δ" + offsetX + ", Δ" + offsetY + ", Δ" + offsetZ + ")."));
         scheduleCountdown(level, player, forcedChunks, safePos, teleportAction);
     }
 
@@ -225,8 +236,12 @@ public final class LocateTeleportHandler {
 
             if (secondsLeft > 0) {
                 int displaySeconds = secondsLeft--;
+                int elapsed = COUNTDOWN_SECONDS - displaySeconds;
+                int forcedEstimate = Math.max(1, (int) Math.round((elapsed / (double) COUNTDOWN_SECONDS) * forcedChunks.size()));
+                int percent = Math.max(0, Math.min(100, (int) Math.round((elapsed * 100.0D) / COUNTDOWN_SECONDS)));
                 level.getServer().execute(() -> player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds
-                        + "... (chunks ready: " + forcedChunks.size() + ", safe spot scan pending)")));
+                        + "... [preload progress: " + forcedEstimate + "/" + forcedChunks.size() + " chunks, "
+                        + percent + "% | safe target: " + safePos.getX() + " " + safePos.getY() + " " + safePos.getZ() + "]")));
                 return;
             }
 
