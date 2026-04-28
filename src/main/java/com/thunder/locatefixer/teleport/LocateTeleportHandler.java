@@ -32,7 +32,6 @@ public final class LocateTeleportHandler {
     private static final int SAFE_SEARCH_UP = 24;
     private static final int SAFE_SEARCH_DOWN = 12;
     private static final int SAFE_SEARCH_HORIZONTAL = 4;
-    private static final int PRELOAD_DIAMETER_CHUNKS = (PRELOAD_RADIUS_CHUNKS * 2) + 1;
     private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
     private static final TagKey<Biome> CAVE_BIOME_TAG = Tags.Biomes.IS_CAVE;
 
@@ -52,11 +51,8 @@ public final class LocateTeleportHandler {
         ChunkPos targetChunk = new ChunkPos(targetPos);
         player.sendSystemMessage(Component.literal("📦 Preloading destination chunks around "
                 + "[" + targetChunk.x + ", " + targetChunk.z + "]"
-                + " with radius " + PRELOAD_RADIUS_CHUNKS + " chunk(s)"
-                + " (" + PRELOAD_DIAMETER_CHUNKS + "x" + PRELOAD_DIAMETER_CHUNKS + " grid, " + forcedChunks.size() + " total)."));
+                + " (radius " + PRELOAD_RADIUS_CHUNKS + ", " + forcedChunks.size() + " total)."));
         sendActionBar(player, Component.literal("📦 Chunk preload: 0/" + forcedChunks.size() + " forced (warming up world)..."));
-        player.sendSystemMessage(Component.literal("📍 Requested teleport target: "
-                + targetPos.getX() + " " + targetPos.getY() + " " + targetPos.getZ()));
 
         BlockPos safePos = findSafeTeleportPosition(level, targetPos);
         int offsetX = safePos.getX() - targetPos.getX();
@@ -69,6 +65,13 @@ public final class LocateTeleportHandler {
     }
 
     public static BlockPos findSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
+        // Keep teleport as close as possible to the requested target first, then
+        // fall back to broader biome-specific heuristics.
+        BlockPos nearby = findNearbySafePosition(level, targetPos);
+        if (nearby != null) {
+            return nearby;
+        }
+
         if (level.getBiome(targetPos).is(CAVE_BIOME_TAG)) {
             return findCaveSafePosition(level, targetPos);
         }
@@ -127,6 +130,33 @@ public final class LocateTeleportHandler {
         }
 
         return targetPos;
+    }
+
+    private static BlockPos findNearbySafePosition(ServerLevel level, BlockPos targetPos) {
+        if (isSafePosition(level, targetPos)) {
+            return targetPos;
+        }
+
+        int maxRange = Math.max(SAFE_SEARCH_UP, SAFE_SEARCH_DOWN);
+        for (int vertical = 0; vertical <= maxRange; vertical++) {
+            if (vertical == 0) {
+                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, 0);
+                if (match != null) return match;
+                continue;
+            }
+
+            if (vertical <= SAFE_SEARCH_DOWN) {
+                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, -vertical);
+                if (match != null) return match;
+            }
+
+            if (vertical <= SAFE_SEARCH_UP) {
+                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, vertical);
+                if (match != null) return match;
+            }
+        }
+
+        return null;
     }
 
     private static BlockPos findCaveSafePositionAtYOffset(ServerLevel level, BlockPos targetPos, int yOffset) {
@@ -240,8 +270,8 @@ public final class LocateTeleportHandler {
                 int forcedEstimate = Math.max(1, (int) Math.round((elapsed / (double) COUNTDOWN_SECONDS) * forcedChunks.size()));
                 int percent = Math.max(0, Math.min(100, (int) Math.round((elapsed * 100.0D) / COUNTDOWN_SECONDS)));
                 level.getServer().execute(() -> player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds
-                        + "... [preload progress: " + forcedEstimate + "/" + forcedChunks.size() + " chunks, "
-                        + percent + "% | safe target: " + safePos.getX() + " " + safePos.getY() + " " + safePos.getZ() + "]")));
+                        + "... [preload " + forcedEstimate + "/" + forcedChunks.size() + ", "
+                        + percent + "% | target " + safePos.getX() + " " + safePos.getY() + " " + safePos.getZ() + "]")));
                 return;
             }
 

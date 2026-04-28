@@ -655,15 +655,11 @@ public class AsyncLocateHandler {
                                                    BlockPos locatedPos, BlockPos teleportTarget) {
         long elapsedMs = Math.max(1L, System.currentTimeMillis() - startedAtMs);
         String elapsedText = String.format(java.util.Locale.ROOT, "%.2fs", elapsedMs / 1000.0D);
-        int dx = teleportTarget.getX() - locatedPos.getX();
-        int dy = teleportTarget.getY() - locatedPos.getY();
-        int dz = teleportTarget.getZ() - locatedPos.getZ();
         source.sendSuccess(() -> Component.literal("✅ Search complete in " + elapsedText
                 + " (ring " + step + "/" + totalSteps + ")."), false);
-        source.sendSuccess(() -> Component.literal("🛰 Teleport prep: located at "
+        source.sendSuccess(() -> Component.literal("🛰 Teleport prep: located "
                 + locatedPos.getX() + " " + locatedPos.getY() + " " + locatedPos.getZ()
-                + ", targeting " + teleportTarget.getX() + " " + teleportTarget.getY() + " " + teleportTarget.getZ()
-                + " (offset Δ" + dx + ", Δ" + dy + ", Δ" + dz + ")."), false);
+                + " → target " + teleportTarget.getX() + " " + teleportTarget.getY() + " " + teleportTarget.getZ() + "."), false);
     }
 
     private static long approximateChunksInRadius(int radiusBlocks) {
