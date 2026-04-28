@@ -50,6 +50,8 @@ public final class LocateTeleportHandler {
         List<ChunkPos> forcedChunks = forceChunks(level, targetPos);
         player.sendSystemMessage(Component.literal("📦 Preloading destination chunks..."));
         sendActionBar(player, Component.literal("📦 Preloading " + forcedChunks.size() + " chunks..."));
+        player.sendSystemMessage(Component.literal("📍 Requested teleport target: "
+                + targetPos.getX() + " " + targetPos.getY() + " " + targetPos.getZ()));
 
         BlockPos safePos = findSafeTeleportPosition(level, targetPos);
         scheduleCountdown(level, player, forcedChunks, safePos, teleportAction);
@@ -223,7 +225,8 @@ public final class LocateTeleportHandler {
 
             if (secondsLeft > 0) {
                 int displaySeconds = secondsLeft--;
-                level.getServer().execute(() -> player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds + "...")));
+                level.getServer().execute(() -> player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds
+                        + "... (chunks ready: " + forcedChunks.size() + ", safe spot scan pending)")));
                 return;
             }
 

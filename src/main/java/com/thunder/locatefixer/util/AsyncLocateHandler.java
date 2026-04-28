@@ -115,6 +115,7 @@ public class AsyncLocateHandler {
                 int startIndex = findStartIndex(cacheEntry, origin, rings);
                 int totalSteps = Math.max(1, rings.length - startIndex);
                 long startedAt = System.currentTimeMillis();
+                sendLocateStartUpdate(level, source, "structure", canonicalTarget, totalSteps, settings.maxRadius());
 
                 for (int i = startIndex; i < rings.length; i++) {
                     int scanRadius = rings[i];
@@ -139,6 +140,7 @@ public class AsyncLocateHandler {
 
                         level.getServer().execute(() -> {
                             BlockPos surfacePos = locateTeleportTarget(level, structureTeleportTarget(level, pos));
+                            sendLocateCompletionUpdate(source, startedAt, step, totalSteps, pos, surfacePos);
                             LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, surfacePos, true);
                         });
                         return;
@@ -231,6 +233,7 @@ public class AsyncLocateHandler {
                 int startIndex = findStartIndex(cacheEntry, origin, rings);
                 int totalSteps = Math.max(1, rings.length - startIndex);
                 long startedAt = System.currentTimeMillis();
+                sendLocateStartUpdate(level, source, "biome", biome.asPrintable(), totalSteps, settings.maxRadius());
 
                 for (int i = startIndex; i < rings.length; i++) {
                     int scanRadius = rings[i];
@@ -248,6 +251,7 @@ public class AsyncLocateHandler {
 
                         level.getServer().execute(() -> {
                             BlockPos teleportTarget = locateTeleportTarget(level, pos);
+                            sendLocateCompletionUpdate(source, startedAt, step, totalSteps, pos, teleportTarget);
                             LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, teleportTarget, true);
                         });
                         return;
@@ -623,7 +627,8 @@ public class AsyncLocateHandler {
         long remainingMs = Math.max(0L, avgStepMs * (totalSteps - step));
         long remainingSeconds = TimeUnit.MILLISECONDS.toSeconds(remainingMs);
         String etaText = remainingSeconds > 0 ? " ⏳ ~" + remainingSeconds + "s remaining" : "";
-        String radiusText = "radius " + scanRadius + " blocks";
+        long approxChunks = approximateChunksInRadius(scanRadius);
+        String radiusText = "radius " + scanRadius + " blocks (~" + approxChunks + " chunks)";
         String searchStateText;
         if (scanRadius > 6400) {
             int lanesPassed = Math.max(1, scanRadius / 6400);
@@ -633,7 +638,34 @@ public class AsyncLocateHandler {
         }
 
         level.getServer().execute(() -> source.sendSuccess(() ->
-                Component.literal(searchStateText + " (" + progressPercent + "%)" + etaText), false));
+                Component.literal(searchStateText + " [ring " + step + "/" + totalSteps + ", " + progressPercent + "%]" + etaText), false));
+    }
+
+    private static void sendLocateStartUpdate(ServerLevel level, CommandSourceStack source, String kind,
+                                              String query, int ringCount, int maxRadius) {
+        level.getServer().execute(() -> source.sendSuccess(() ->
+                Component.literal("🧭 Starting " + kind + " search for '" + query + "' with "
+                        + ringCount + " ring(s), max radius " + maxRadius + " blocks."), false));
+    }
+
+    private static void sendLocateCompletionUpdate(CommandSourceStack source, long startedAtMs, int step, int totalSteps,
+                                                   BlockPos locatedPos, BlockPos teleportTarget) {
+        long elapsedMs = Math.max(1L, System.currentTimeMillis() - startedAtMs);
+        String elapsedText = String.format(java.util.Locale.ROOT, "%.2fs", elapsedMs / 1000.0D);
+        int dx = teleportTarget.getX() - locatedPos.getX();
+        int dy = teleportTarget.getY() - locatedPos.getY();
+        int dz = teleportTarget.getZ() - locatedPos.getZ();
+        source.sendSuccess(() -> Component.literal("✅ Search complete in " + elapsedText
+                + " (ring " + step + "/" + totalSteps + ")."), false);
+        source.sendSuccess(() -> Component.literal("🛰 Teleport prep: located at "
+                + locatedPos.getX() + " " + locatedPos.getY() + " " + locatedPos.getZ()
+                + ", targeting " + teleportTarget.getX() + " " + teleportTarget.getY() + " " + teleportTarget.getZ()
+                + " (offset Δ" + dx + ", Δ" + dy + ", Δ" + dz + ")."), false);
+    }
+
+    private static long approximateChunksInRadius(int radiusBlocks) {
+        double area = Math.PI * radiusBlocks * radiusBlocks;
+        return Math.max(1L, Math.round(area / 256.0D));
     }
 
     public static void reloadConfig() {
