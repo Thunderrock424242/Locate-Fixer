@@ -1,13 +1,13 @@
 package com.thunder.locatefixer.command;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.StringArgumentType;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import com.thunder.locatefixer.util.LocateResultHelper;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.commands.arguments.ResourceLocationArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
@@ -42,7 +42,7 @@ public final class LocateFixerFeatureCommand {
                                 return false;
                             }
                         })
-                        .then(Commands.argument("feature", StringArgumentType.word())
+                        .then(Commands.argument("feature", ResourceLocationArgument.id())
                                 .suggests((context, builder) -> SharedSuggestionProvider.suggestResource(
                                         context.getSource().getLevel()
                                                 .registryAccess()
@@ -53,16 +53,11 @@ public final class LocateFixerFeatureCommand {
                                 ))
                                 .executes(context -> locateFeature(
                                         context.getSource(),
-                                        StringArgumentType.getString(context, "feature")
+                                        ResourceLocationArgument.getId(context, "feature")
                                 )))));
     }
 
-    private static int locateFeature(CommandSourceStack source, String rawFeatureId) {
-        ResourceLocation featureId = ResourceLocation.tryParse(rawFeatureId);
-        if (featureId == null) {
-            source.sendFailure(Component.literal("❌ Invalid feature id: " + rawFeatureId));
-            return 0;
-        }
+    private static int locateFeature(CommandSourceStack source, ResourceLocation featureId) {
 
         ServerLevel level = source.getLevel();
         Registry<PlacedFeature> registry = level.registryAccess().registryOrThrow(Registries.PLACED_FEATURE);
