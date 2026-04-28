@@ -36,9 +36,14 @@ public final class LocateTeleportHandler {
     private static final int PRELOAD_RADIUS_CHUNKS = 1;
     private static final int SAFE_AREA_RADIUS = 1;
     private static final int SAFE_AREA_HEIGHT = 2;
-    private static final int SAFE_SEARCH_UP = 24;
-    private static final int SAFE_SEARCH_DOWN = 12;
-    private static final int SAFE_SEARCH_HORIZONTAL = 4;
+
+    private static final int ABOVEGROUND_SEARCH_UP = 16;
+    private static final int ABOVEGROUND_SEARCH_DOWN = 12;
+    private static final int ABOVEGROUND_SEARCH_HORIZONTAL = 4;
+
+    private static final int UNDERGROUND_SEARCH_UP = 32;
+    private static final int UNDERGROUND_SEARCH_DOWN = 8;
+    private static final int UNDERGROUND_SEARCH_HORIZONTAL = 6;
     private static final int UNDERGROUND_SURFACE_THRESHOLD = 8;
     private static final int UNDERGROUND_SURFACE_RADIUS = 6;
     private static final int SURFACE_FALLBACK_RADIUS = 8;
@@ -67,11 +72,14 @@ public final class LocateTeleportHandler {
     }
 
     public static BlockPos findSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
+        SearchProfile searchProfile = SearchProfile.ABOVEGROUND;
+
         if (isSafePosition(level, targetPos)) {
             return targetPos;
         }
 
         if (isUndergroundTarget(level, targetPos)) {
+            searchProfile = SearchProfile.UNDERGROUND;
             BlockPos undergroundSafe = findSafePositionForUndergroundTarget(level, targetPos);
             if (undergroundSafe != null) {
                 return undergroundSafe;
@@ -79,13 +87,13 @@ public final class LocateTeleportHandler {
         }
 
         // Prefer a safe spot near the located Y before any global surface fallback.
-        BlockPos nearTarget = findNearestSafePositionAroundY(level, targetPos);
+        BlockPos nearTarget = findNearestSafePositionAroundY(level, targetPos, searchProfile);
         if (nearTarget != null) {
             return nearTarget;
         }
 
         if (level.getBiome(targetPos).is(CAVE_BIOME_TAG)) {
-            BlockPos caveCandidate = findCaveSafePosition(level, targetPos);
+            BlockPos caveCandidate = findCaveSafePosition(level, targetPos, searchProfile);
             if (!caveCandidate.equals(targetPos) || isSafePosition(level, caveCandidate)) {
                 return caveCandidate;
             }
@@ -165,7 +173,8 @@ public final class LocateTeleportHandler {
     }
 
     private static BlockPos findSurfaceSafePosition(ServerLevel level, BlockPos targetPos) {
-        BlockPos nearTarget = findNearestSafePositionAroundY(level, targetPos);
+        SearchProfile searchProfile = isUndergroundTarget(level, targetPos) ? SearchProfile.UNDERGROUND : SearchProfile.ABOVEGROUND;
+        BlockPos nearTarget = findNearestSafePositionAroundY(level, targetPos, searchProfile);
         if (nearTarget != null) {
             return nearTarget;
         }
@@ -213,52 +222,52 @@ public final class LocateTeleportHandler {
         return null;
     }
 
-    private static BlockPos findNearestSafePositionAroundY(ServerLevel level, BlockPos targetPos) {
+    private static BlockPos findNearestSafePositionAroundY(ServerLevel level, BlockPos targetPos, SearchProfile searchProfile) {
         int minY = level.getMinBuildHeight() + 1;
         int maxY = level.getMaxBuildHeight() - SAFE_AREA_HEIGHT;
         int centerY = Math.max(minY, Math.min(maxY, targetPos.getY()));
 
-        int maxRange = Math.max(SAFE_SEARCH_UP, SAFE_SEARCH_DOWN);
+        int maxRange = Math.max(searchProfile.searchUp(), searchProfile.searchDown());
         for (int vertical = 0; vertical <= maxRange; vertical++) {
             if (vertical == 0) {
-                BlockPos sameY = findCaveSafePositionAtYOffset(level, targetPos.atY(centerY), 0);
+                BlockPos sameY = findCaveSafePositionAtYOffset(level, targetPos.atY(centerY), 0, searchProfile.searchHorizontal());
                 if (sameY != null) return sameY;
                 continue;
             }
 
-            if (vertical <= SAFE_SEARCH_UP && centerY + vertical <= maxY) {
-                BlockPos above = findCaveSafePositionAtYOffset(level, targetPos.atY(centerY), vertical);
+            if (vertical <= searchProfile.searchUp() && centerY + vertical <= maxY) {
+                BlockPos above = findCaveSafePositionAtYOffset(level, targetPos.atY(centerY), vertical, searchProfile.searchHorizontal());
                 if (above != null) return above;
             }
 
-            if (vertical <= SAFE_SEARCH_DOWN && centerY - vertical >= minY) {
-                BlockPos below = findCaveSafePositionAtYOffset(level, targetPos.atY(centerY), -vertical);
+            if (vertical <= searchProfile.searchDown() && centerY - vertical >= minY) {
+                BlockPos below = findCaveSafePositionAtYOffset(level, targetPos.atY(centerY), -vertical, searchProfile.searchHorizontal());
                 if (below != null) return below;
             }
         }
         return null;
     }
 
-    private static BlockPos findCaveSafePosition(ServerLevel level, BlockPos targetPos) {
+    private static BlockPos findCaveSafePosition(ServerLevel level, BlockPos targetPos, SearchProfile searchProfile) {
         if (isSafePosition(level, targetPos)) {
             return targetPos;
         }
 
-        int maxRange = Math.max(SAFE_SEARCH_UP, SAFE_SEARCH_DOWN);
+        int maxRange = Math.max(searchProfile.searchUp(), searchProfile.searchDown());
         for (int vertical = 0; vertical <= maxRange; vertical++) {
             if (vertical == 0) {
-                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, 0);
+                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, 0, searchProfile.searchHorizontal());
                 if (match != null) return match;
                 continue;
             }
 
-            if (vertical <= SAFE_SEARCH_UP) {
-                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, vertical);
+            if (vertical <= searchProfile.searchUp()) {
+                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, vertical, searchProfile.searchHorizontal());
                 if (match != null) return match;
             }
 
-            if (vertical <= SAFE_SEARCH_DOWN) {
-                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, -vertical);
+            if (vertical <= searchProfile.searchDown()) {
+                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, -vertical, searchProfile.searchHorizontal());
                 if (match != null) return match;
             }
         }
@@ -266,9 +275,9 @@ public final class LocateTeleportHandler {
         return targetPos;
     }
 
-    private static BlockPos findCaveSafePositionAtYOffset(ServerLevel level, BlockPos targetPos, int yOffset) {
+    private static BlockPos findCaveSafePositionAtYOffset(ServerLevel level, BlockPos targetPos, int yOffset, int horizontalRange) {
         BlockPos base = targetPos.offset(0, yOffset, 0);
-        for (int radius = 0; radius <= SAFE_SEARCH_HORIZONTAL; radius++) {
+        for (int radius = 0; radius <= horizontalRange; radius++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
@@ -477,6 +486,33 @@ public final class LocateTeleportHandler {
             if (timeoutFuture != null && !timeoutFuture.isCancelled()) {
                 timeoutFuture.cancel(false);
             }
+        }
+    }
+
+    private enum SearchProfile {
+        ABOVEGROUND(ABOVEGROUND_SEARCH_UP, ABOVEGROUND_SEARCH_DOWN, ABOVEGROUND_SEARCH_HORIZONTAL),
+        UNDERGROUND(UNDERGROUND_SEARCH_UP, UNDERGROUND_SEARCH_DOWN, UNDERGROUND_SEARCH_HORIZONTAL);
+
+        private final int searchUp;
+        private final int searchDown;
+        private final int searchHorizontal;
+
+        SearchProfile(int searchUp, int searchDown, int searchHorizontal) {
+            this.searchUp = searchUp;
+            this.searchDown = searchDown;
+            this.searchHorizontal = searchHorizontal;
+        }
+
+        private int searchUp() {
+            return searchUp;
+        }
+
+        private int searchDown() {
+            return searchDown;
+        }
+
+        private int searchHorizontal() {
+            return searchHorizontal;
         }
     }
 }
