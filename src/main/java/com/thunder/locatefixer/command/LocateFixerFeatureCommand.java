@@ -48,8 +48,7 @@ public final class LocateFixerFeatureCommand {
                                                 .registryAccess()
                                                 .registryOrThrow(Registries.PLACED_FEATURE)
                                                 .keySet()
-                                                .stream()
-                                                .map(ResourceKey::location),
+                                                .stream(),
                                         builder
                                 ))
                                 .executes(context -> locateFeature(

@@ -20,6 +20,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(LocateCommand.class)
 public class LocateCommandMixin {
 
+    private static boolean isLocateFeaturesEnabled() {
+        try {
+            return LocateFixerConfig.SERVER.locateRings.get() != null;
+        } catch (IllegalStateException ignored) {
+            return true;
+        }
+    }
+
     @Inject(method = "locateStructure", at = @At("HEAD"), cancellable = true)
     private static void locatefix$asyncLocateStructure(
             CommandSourceStack source,
