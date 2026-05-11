@@ -13,8 +13,12 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
 import net.minecraft.world.entity.ai.village.poi.PoiType;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.levelgen.structure.Structure;
+import net.minecraft.world.level.levelgen.structure.StructureStart;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -26,6 +30,7 @@ public class AsyncLocateHandler {
 
     private static final int[] DEFAULT_RINGS = {6400, 16000, 32000, 64000, 128000, 256000};
     private static final int CACHE_MAX_ENTRIES = 512;
+    private static final int STRUCTURE_START_SCAN_RADIUS_CHUNKS = 1;
 
     // Pre-computed unit-circle samples for createAnchors — avoids repeated sin/cos per call.
     // We pre-build for the maximum sample count (32) and slice as needed.
@@ -104,7 +109,7 @@ public class AsyncLocateHandler {
                     if (horizontalDistanceSq(origin, cachedPos) <= (long) settings.maxRadius() * settings.maxRadius()) {
                         Holder<Structure> holder = cacheEntry.holder();
                         level.getServer().execute(() -> {
-                            BlockPos surfacePos = locateTeleportTarget(level, structureTeleportTarget(level, cachedPos));
+                            BlockPos surfacePos = locateTeleportTarget(level, structureTeleportTarget(level, cachedPos, holder));
                             source.sendSuccess(() -> Component.literal("✅ Using cached locate result."), false);
                             LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, surfacePos, true);
                         });
@@ -138,7 +143,7 @@ public class AsyncLocateHandler {
                         putWithEviction(STRUCTURE_CACHE, cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
 
                         level.getServer().execute(() -> {
-                            BlockPos surfacePos = locateTeleportTarget(level, structureTeleportTarget(level, pos));
+                            BlockPos surfacePos = locateTeleportTarget(level, structureTeleportTarget(level, pos, holder));
                             sendLocateCompletionUpdate(source, startedAt, step, totalSteps, pos, surfacePos);
                             LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, surfacePos, true);
                         });
@@ -560,12 +565,45 @@ public class AsyncLocateHandler {
         return (int) Mth.clamp((float) Math.round(computed * settings.biomeSampleStepMultiplier()), 16, 256);
     }
 
-    private static BlockPos structureTeleportTarget(ServerLevel level, BlockPos structurePos) {
-        // Keep the original structure Y as the teleport anchor. The safe-teleport handler
-        // will adjust to a nearby safe spot, but preserving Y here avoids large vertical
-        // offsets (for example when structures generate far below/above world surface).
-        int clampedY = Mth.clamp(structurePos.getY(), level.getMinBuildHeight(), level.getMaxBuildHeight() - 1);
-        return new BlockPos(structurePos.getX(), clampedY, structurePos.getZ());
+    private static BlockPos structureTeleportTarget(ServerLevel level, BlockPos structurePos, Holder<Structure> holder) {
+        BlockPos refinedPos = resolveStructureCenter(level, structurePos, holder);
+        int clampedY = Mth.clamp(refinedPos.getY(), level.getMinBuildHeight(), level.getMaxBuildHeight() - 1);
+        return new BlockPos(refinedPos.getX(), clampedY, refinedPos.getZ());
+    }
+
+    private static BlockPos resolveStructureCenter(ServerLevel level, BlockPos locatePos, Holder<Structure> holder) {
+        try {
+            ChunkPos anchorChunk = new ChunkPos(locatePos);
+            BlockPos bestCenter = null;
+            double bestDistanceSq = Double.MAX_VALUE;
+
+            for (int dx = -STRUCTURE_START_SCAN_RADIUS_CHUNKS; dx <= STRUCTURE_START_SCAN_RADIUS_CHUNKS; dx++) {
+                for (int dz = -STRUCTURE_START_SCAN_RADIUS_CHUNKS; dz <= STRUCTURE_START_SCAN_RADIUS_CHUNKS; dz++) {
+                    ChunkAccess chunk = level.getChunk(anchorChunk.x + dx, anchorChunk.z + dz, ChunkStatus.STRUCTURE_STARTS);
+                    StructureStart start = level.structureManager()
+                            .getStartForStructure(SectionPos.bottomOf(chunk), holder.value(), chunk);
+                    if (start == null || !start.isValid()) {
+                        continue;
+                    }
+
+                    BlockPos center = start.getBoundingBox().getCenter();
+                    double distanceSq = center.distSqr(locatePos);
+                    if (distanceSq < bestDistanceSq) {
+                        bestDistanceSq = distanceSq;
+                        bestCenter = center;
+                    }
+                }
+            }
+
+            if (bestCenter != null) {
+                return bestCenter;
+            }
+        } catch (Exception e) {
+            LOGGER.debug("[LocateFixer] Could not refine structure locate target for '{}'.",
+                    holder.getRegisteredName(), e);
+        }
+
+        return locatePos;
     }
 
     private static BlockPos locateTeleportTarget(ServerLevel level, BlockPos locatedPos) {

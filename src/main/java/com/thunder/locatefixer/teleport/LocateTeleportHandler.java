@@ -28,7 +28,7 @@ public final class LocateTeleportHandler {
 
     private static final int COUNTDOWN_SECONDS = 5;
     private static final int PRELOAD_RADIUS_CHUNKS = 2;
-    private static final int SAFE_AREA_RADIUS = 1;
+    private static final int SAFE_AREA_RADIUS = 0;
     private static final int SAFE_AREA_HEIGHT = 2;
     private static final int SAFE_SEARCH_UP = 24;
     private static final int SAFE_SEARCH_DOWN = 12;
@@ -66,25 +66,28 @@ public final class LocateTeleportHandler {
     }
 
     public static BlockPos findSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
-        // Prefer a surface spawn for more predictable /locate teleports.
-        BlockPos surface = findPreferredSurfacePosition(level, targetPos);
-        if (surface != null) {
-            return surface;
-        }
-
-        // Fallback: find a cave pocket close to the surface before using deeper scans.
-        BlockPos caveNearSurface = findNearSurfaceCaveSafePosition(level, targetPos);
-        if (caveNearSurface != null) {
-            return caveNearSurface;
-        }
-
+        // Keep the teleport anchored to the requested coordinate whenever it is safe.
         BlockPos nearby = findNearbySafePosition(level, targetPos);
         if (nearby != null) {
             return nearby;
         }
 
         if (level.getBiome(targetPos).is(CAVE_BIOME_TAG)) {
-            return findCaveSafePosition(level, targetPos);
+            BlockPos cave = findCaveSafePosition(level, targetPos);
+            if (cave != null) {
+                return cave;
+            }
+        }
+
+        BlockPos caveNearSurface = findNearSurfaceCaveSafePosition(level, targetPos);
+        if (caveNearSurface != null) {
+            return caveNearSurface;
+        }
+
+        // Last resort: use the same X/Z on the surface instead of failing outright.
+        BlockPos surface = findPreferredSurfacePosition(level, targetPos);
+        if (surface != null) {
+            return surface;
         }
 
         return targetPos;
@@ -179,7 +182,7 @@ public final class LocateTeleportHandler {
             }
         }
 
-        return targetPos;
+        return null;
     }
 
     private static BlockPos findNearbySafePosition(ServerLevel level, BlockPos targetPos) {
