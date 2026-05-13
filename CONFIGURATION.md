@@ -4,7 +4,7 @@ Locate Fixer exposes a server-side configuration file that lets you tune the way
 
 ## Finding the config file
 
-When the mod starts for the first time it writes a `locatefixer-server.toml` file inside the standard NeoForge config directory:
+When the mod starts for the first time it writes a `locatefixer-server.toml` file inside the standard Forge config directory:
 
 - **Dedicated server:** `<server root>/config/locatefixer-server.toml`
 - **Single-player / client-hosted worlds:** `<minecraft directory>/config/locatefixer-server.toml`

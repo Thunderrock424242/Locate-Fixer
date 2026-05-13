@@ -27,7 +27,7 @@ import java.util.EnumSet;
 import java.util.Locale;
 
 import javax.annotation.Nullable;
-import net.neoforged.neoforge.event.EventHooks;
+import net.minecraftforge.event.ForgeEventFactory;
 
 @Mixin(TeleportCommand.class)
 public abstract class TeleportCommandMixin {
@@ -68,7 +68,7 @@ public abstract class TeleportCommandMixin {
         double y = targetVec.y;
         double z = targetVec.z;
 
-        var event = EventHooks.onEntityTeleportCommand(player, x, y, z);
+        var event = ForgeEventFactory.onEntityTeleportCommand(player, x, y, z);
         if (event.isCanceled()) {
             return;
         }

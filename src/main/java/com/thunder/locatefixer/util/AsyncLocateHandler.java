@@ -16,7 +16,7 @@ import net.minecraft.world.entity.ai.village.poi.PoiType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.chunk.ChunkAccess;
-import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.chunk.ChunkStatus;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 
@@ -133,7 +133,7 @@ public class AsyncLocateHandler {
                     if (result != null) {
                         BlockPos pos = result.getFirst();
                         Holder<Structure> holder = result.getSecond();
-                        String foundId = holder.getRegisteredName();
+                        String foundId = holderName(holder);
                         if (!allowedStructureIds.contains(foundId)) {
                             LOGGER.warn("[LocateFixer] Ignoring locate candidate '{}' for request '{}'; resolved allowed ids={}",
                                     foundId, canonicalTarget, allowedStructureIds);
@@ -356,7 +356,7 @@ public class AsyncLocateHandler {
                         long posKey = pos.asLong();
                         if (!seenPositions.add(posKey)) continue;
 
-                        String name = result.getSecond().getRegisteredName();
+                        String name = holderName(result.getSecond());
                         int dist = horizontalDistance(origin, pos);
 
                         // Keep closest result per structure type
@@ -427,11 +427,12 @@ public class AsyncLocateHandler {
                             Component.literal("🔍 Sampling for nearest " + count + " biomes up to " + ringFinal + " blocks..."), false));
 
                     for (Holder<Biome> targetBiome : allBiomes) {
-                        String biomeName = targetBiome.getRegisteredName();
+                        String biomeName = holderName(targetBiome);
                         if (bestByBiome.containsKey(biomeName)) continue; // already found one closer
 
-                        Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(
-                                h -> h.is(targetBiome), origin, ring, sampleRadius, step);
+                        Pair<BlockPos, Holder<Biome>> result = targetBiome.unwrapKey()
+                                .map(key -> level.findClosestBiome3d(h -> h.is(key), origin, ring, sampleRadius, step))
+                                .orElse(null);
                         if (result == null) continue;
 
                         BlockPos pos = result.getFirst();
@@ -600,7 +601,7 @@ public class AsyncLocateHandler {
             }
         } catch (Exception e) {
             LOGGER.debug("[LocateFixer] Could not refine structure locate target for '{}'.",
-                    holder.getRegisteredName(), e);
+                    holderName(holder), e);
         }
 
         return locatePos;
@@ -632,12 +633,12 @@ public class AsyncLocateHandler {
     private static String canonicalStructureTarget(ResourceOrTagKeyArgument.Result<Structure> requested,
                                                    HolderSet<Structure> holders) {
         if (holders.size() == 1) {
-            return holders.stream().findFirst().map(Holder::getRegisteredName).orElse(requested.asPrintable());
+            return holders.stream().findFirst().map(AsyncLocateHandler::holderName).orElse(requested.asPrintable());
         }
         // For tags/multi-target searches, cache by resolved structure ids so different
         // queries cannot accidentally share results.
         return holders.stream()
-                .map(Holder::getRegisteredName)
+                .map(AsyncLocateHandler::holderName)
                 .filter(Objects::nonNull)
                 .sorted()
                 .reduce((a, b) -> a + "," + b)
@@ -648,12 +649,18 @@ public class AsyncLocateHandler {
     private static Set<String> resolvedStructureIds(HolderSet<Structure> holders) {
         Set<String> ids = new HashSet<>();
         for (Holder<Structure> holder : holders) {
-            String id = holder.getRegisteredName();
+            String id = holderName(holder);
             if (id != null) {
                 ids.add(id);
             }
         }
         return ids;
+    }
+
+    private static String holderName(Holder<?> holder) {
+        return holder.unwrapKey()
+                .map(key -> key.location().toString())
+                .orElse("unknown");
     }
 
     private static void sendRingProgressUpdate(ServerLevel level, CommandSourceStack source,

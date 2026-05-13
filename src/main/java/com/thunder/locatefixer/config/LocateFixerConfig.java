@@ -1,16 +1,15 @@
 package com.thunder.locatefixer.config;
 
-import net.neoforged.neoforge.common.ModConfigSpec;
+import net.minecraftforge.common.ForgeConfigSpec;
 
 import java.util.List;
-import java.util.function.Supplier;
 
 public final class LocateFixerConfig {
-    public static final ModConfigSpec SERVER_SPEC;
+    public static final ForgeConfigSpec SERVER_SPEC;
     public static final ServerConfig SERVER;
 
     static {
-        ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
+        ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
         SERVER = new ServerConfig(builder);
         SERVER_SPEC = builder.build();
     }
@@ -19,22 +18,21 @@ public final class LocateFixerConfig {
     }
 
     public static final class ServerConfig {
-        public final ModConfigSpec.ConfigValue<List<? extends Integer>> locateRings;
-        public final ModConfigSpec.IntValue locateThreadCount;
-        public final ModConfigSpec.LongValue cacheDurationMinutes;
-        public final ModConfigSpec.IntValue cacheChunkGranularity;
-        public final ModConfigSpec.DoubleValue biomeSampleRadiusMultiplier;
-        public final ModConfigSpec.DoubleValue biomeSampleStepMultiplier;
-        public final ModConfigSpec.IntValue poiSearchRadius;
-        public final ModConfigSpec.BooleanValue enableFeatureLocateCommand;
-        public final ModConfigSpec.BooleanValue enableNearestCommand;
+        public final ForgeConfigSpec.ConfigValue<List<? extends Integer>> locateRings;
+        public final ForgeConfigSpec.IntValue locateThreadCount;
+        public final ForgeConfigSpec.LongValue cacheDurationMinutes;
+        public final ForgeConfigSpec.IntValue cacheChunkGranularity;
+        public final ForgeConfigSpec.DoubleValue biomeSampleRadiusMultiplier;
+        public final ForgeConfigSpec.DoubleValue biomeSampleStepMultiplier;
+        public final ForgeConfigSpec.IntValue poiSearchRadius;
+        public final ForgeConfigSpec.BooleanValue enableFeatureLocateCommand;
+        public final ForgeConfigSpec.BooleanValue enableNearestCommand;
 
-        private ServerConfig(ModConfigSpec.Builder builder) {
+        private ServerConfig(ForgeConfigSpec.Builder builder) {
             builder.push("locate");
             locateRings = builder
                     .comment("Ordered list of radii (in blocks) used when scanning for structures/biomes.")
                     .defineList("locateRings", List.of(6400, 16000, 32000, 64000, 128000, 256000),
-                            defaultLocateRingSupplier(),
                             o -> o instanceof Integer && (Integer) o > 0);
             locateThreadCount = builder
                     .comment("Number of asynchronous locate worker threads. Use 1 to force sequential processing.")
@@ -64,9 +62,6 @@ public final class LocateFixerConfig {
                     .comment("Radius (in blocks) used when searching for points of interest.")
                     .defineInRange("poiSearchRadius", 256, 16, 4096);
             builder.pop();
-        }
-        private static Supplier<Integer> defaultLocateRingSupplier() {
-            return () -> 6400;
         }
     }
 }

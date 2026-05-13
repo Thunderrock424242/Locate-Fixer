@@ -27,7 +27,7 @@ public class LocateResultHelper {
         );
 
         Component message = Component.translatable(label,
-                target.getRegisteredName(),
+                target.unwrapKey().map(key -> key.location().toString()).orElse("unknown"),
                 coords,
                 distance
         );

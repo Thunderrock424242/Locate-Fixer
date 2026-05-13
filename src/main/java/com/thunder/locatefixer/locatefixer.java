@@ -8,24 +8,25 @@ import com.thunder.locatefixer.integration.WorldEditHook;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import net.minecraft.commands.CommandSourceStack;
-import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
 
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.neoforged.fml.config.ModConfig;
-import net.neoforged.fml.event.config.ModConfigEvent;
-import net.neoforged.fml.ModList;
-import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.server.ServerStartingEvent;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.ModList;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.event.config.ModConfigEvent;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 
 
-// The value here should match an entry in the META-INF/neoforge.mods.toml file
+// The value here should match an entry in the META-INF/mods.toml file
 @Mod(locatefixer.MOD_ID)
 public class locatefixer {
     // Define mod id in a common place for everything to reference
@@ -33,17 +34,16 @@ public class locatefixer {
     // Directly reference a slf4j logger
     public static final Logger LOGGER = LogUtils.getLogger();
 
-    // The constructor for the mod class is the first code that is run when your mod is loaded.
-    // FML will recognize some parameter types like IEventBus or ModContainer and pass them in automatically.
-    public locatefixer(IEventBus modEventBus, ModContainer modContainer) {
-        // Register the commonSetup method for modloading
+    public locatefixer() {
+        IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
+
         modEventBus.addListener(this::commonSetup);
         modEventBus.addListener(this::onConfigLoad);
         modEventBus.addListener(this::onConfigReload);
 
-        modContainer.registerConfig(ModConfig.Type.SERVER, LocateFixerConfig.SERVER_SPEC);
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, LocateFixerConfig.SERVER_SPEC);
 
-        NeoForge.EVENT_BUS.register(this);
+        MinecraftForge.EVENT_BUS.register(this);
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {

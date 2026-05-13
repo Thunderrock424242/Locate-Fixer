@@ -1,4 +1,4 @@
-# Locate Fixer (NeoForge 1.21.1)
+# Locate Fixer (Forge 1.20.1)
 
 Locate Fixer is a server-first quality-of-life mod that makes locating things in Minecraft reliable again on big or heavily-modded worlds.
 

@@ -1,6 +1,6 @@
 # Locate Fixer
 
-Locate Fixer is a lightweight quality-of-life mod for NeoForge 1.21.1 that makes Minecraft's `/locate`, `/locate biome`, and `/tp` commands reliable for players, staff, and pack makers. The mod keeps searching long after vanilla would give up, streams progress back to chat, and makes teleporting to the result safe even on busy servers.
+Locate Fixer is a lightweight quality-of-life mod for Forge 1.20.1 that makes Minecraft's `/locate`, `/locate biome`, and `/tp` commands reliable for players, staff, and pack makers. The mod keeps searching long after vanilla would give up, streams progress back to chat, and makes teleporting to the result safe even on busy servers.
 
 ## Highlights
 - **Escalating search radii.** Locate rings climb from 6,400 blocks up to 256,000 blocks, so far-flung structures and modded biomes are actually discoverable.
@@ -21,7 +21,7 @@ Locate Fixer is configurable through the generated `config/locatefixer-server.to
 - `locate.enableFeatureLocateCommand` — Enables `/locate feature <placed_feature_id>` for finding nearby biomes that can generate that placed feature (defaults to `false`).
 - `poi.poiSearchRadius` — Maximum radius the mod uses when scanning for points of interest.
 
-Changes can be reloaded on the fly with standard NeoForge config reloads—no restart required.
+Changes can be reloaded on the fly with standard Forge config reloads—no restart required.
 
 ## Usage
 1. Install Locate Fixer on the server (optional but recommended on clients for consistent chat messages).
@@ -35,7 +35,7 @@ Changes can be reloaded on the fly with standard NeoForge config reloads—no re
 If your mod places structures with custom code, you can register a Locate Fixer provider so `/xlocate customstructure <id>` can find them. See `API_DOCUMENTATION.md` for setup steps and examples.
 
 ## Compatibility
-- NeoForge 1.21.1
+- Forge 1.20.1
 - No hard dependencies
 - Designed to coexist with optimization mods and structure/worldgen content packs
 

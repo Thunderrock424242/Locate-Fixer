@@ -110,8 +110,11 @@ public final class LocateDimensionCommand {
                             BIOME_SEARCH_RADIUS, BIOME_HORIZONTAL_STEP, BIOME_VERTICAL_STEP);
                 } else {
                     Holder<Biome> biome = possibleBiomes.get(random.nextInt(possibleBiomes.size()));
-                    selectedBiome = targetLevel.findClosestBiome3d(holder -> holder.is(biome), randomOrigin,
-                            BIOME_SEARCH_RADIUS, BIOME_HORIZONTAL_STEP, BIOME_VERTICAL_STEP);
+                    ResourceKey<Biome> biomeKey = biome.unwrapKey().orElse(null);
+                    if (biomeKey != null) {
+                        selectedBiome = targetLevel.findClosestBiome3d(holder -> holder.is(biomeKey), randomOrigin,
+                                BIOME_SEARCH_RADIUS, BIOME_HORIZONTAL_STEP, BIOME_VERTICAL_STEP);
+                    }
                 }
             }
 
