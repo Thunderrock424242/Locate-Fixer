@@ -2,6 +2,7 @@ package com.thunder.locatefixer.mixin;
 
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
+import com.thunder.locatefixer.util.CommandErrorFixer;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.ResourceOrTagArgument;
 import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;
@@ -39,6 +40,11 @@ public class LocateCommandMixin {
         }
         ServerLevel level = source.getLevel();
         BlockPos origin = BlockPos.containing(source.getPosition());
+
+        if (CommandErrorFixer.sendUnknownStructure(source, structure)) {
+            cir.setReturnValue(0);
+            return;
+        }
 
         AsyncLocateHandler.locateStructureAsync(source, structure, origin, level);
         cir.setReturnValue(1); // fake immediate return

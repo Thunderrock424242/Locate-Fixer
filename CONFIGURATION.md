@@ -14,7 +14,7 @@ Changes to this file automatically propagate when the server reloads configs (fo
 ## Editing tips
 
 1. Stop the server or pause the single-player game before doing large edits. This ensures the file is not overwritten while you work.
-2. Keep the file in valid [TOML](https://toml.io/en/) format. Every setting is nested inside either the `[locate]` or `[poi]` section.
+2. Keep the file in valid [TOML](https://toml.io/en/) format. Most settings are nested inside the `[locate]`, `[commands]`, or `[poi]` section; legacy toggles may appear at the top level.
 3. After saving, watch the server log for messages about the config reloading. Any syntax error will appear there and the previous values will remain active.
 
 ## Available settings
@@ -32,6 +32,12 @@ All values listed below match the defaults that ship with the mod.
 | `biomeSampleRadiusMultiplier` | `1.5` | Multiplier applied to the computed biome sample radius to reduce sample density. Increase it to check fewer sample points per ring (minimum 1.0, maximum 8.0). |
 | `biomeSampleStepMultiplier` | `1.75` | Multiplier applied to the computed biome sample step to reduce sample density. Higher values increase the step size between samples (minimum 1.0, maximum 8.0). |
 | `enableFeatureLocateCommand` | `false` | Enables `/locate feature <placed_feature_id>` for scanning nearby biome generation settings for a matching placed feature (for example tree features). |
+
+### `[commands]`
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `enableCommandErrorFixer` | `true` | Rewrites vague command parse errors for `/locate`, `/summon`, `/give`, and `/effect` with registry-aware fuzzy suggestions that can be clicked to refill the fixed command. |
 
 ### `[poi]`
 

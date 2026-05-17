@@ -28,6 +28,7 @@ public final class LocateFixerConfig {
         public final ModConfigSpec.IntValue poiSearchRadius;
         public final ModConfigSpec.BooleanValue enableFeatureLocateCommand;
         public final ModConfigSpec.BooleanValue enableNearestCommand;
+        public final ModConfigSpec.BooleanValue enableCommandErrorFixer;
 
         private ServerConfig(ModConfigSpec.Builder builder) {
             builder.push("locate");
@@ -58,6 +59,12 @@ public final class LocateFixerConfig {
             enableNearestCommand = builder
                     .comment("Whether the /locate nearest command is registered and usable.")
                     .define("enableNearestCommand", false);
+
+            builder.push("commands");
+            enableCommandErrorFixer = builder
+                    .comment("Whether command parse errors are rewritten with registry-aware fuzzy suggestions.")
+                    .define("enableCommandErrorFixer", true);
+            builder.pop();
 
             builder.push("poi");
             poiSearchRadius = builder

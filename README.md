@@ -7,6 +7,7 @@ Locate Fixer is a lightweight quality-of-life mod for NeoForge 1.21.1 that makes
 - **Async locate workers.** Scans run in a background thread pool while the main server thread stays responsive and keeps players moving.
 - **Smart caching.** Recently found structures and biomes are cached and instantly reused for nearby requests, saving repeated scans.
 - **Nearest X mode (integrated into `/locate`).** Use `/locate nearest structure <count>` or `/locate nearest biome <count>` to list multiple closest matches instead of a single locate hit.
+- **Command error fixer.** Mistyped registry ids in `/locate`, `/summon`, `/give`, and `/effect` get clearer errors with clickable fuzzy suggestions.
 - **Safer teleports.** `/tp` to a locate result preloads the destination chunks, shows a 5‑second countdown, and only moves the player once everything is ready.
 - **Schematic helpers.** `/locate schematic <name>` hooks into the WorldEdit `config/worldedit/schematics` folder so custom builds are easy to revisit.
 
@@ -19,6 +20,7 @@ Locate Fixer is configurable through the generated `config/locatefixer-server.to
 - `locate.cacheChunkGranularity` — How broadly cached results can be reused around the original request.
 - `locate.biomeSampleRadiusMultiplier` & `locate.biomeSampleStepMultiplier` — Tune biome sampling density for faster or more precise biome scans.
 - `locate.enableFeatureLocateCommand` — Enables `/locate feature <placed_feature_id>` for finding nearby biomes that can generate that placed feature (defaults to `false`).
+- `commands.enableCommandErrorFixer` — Rewrites vague command parse errors with registry-aware suggestions (defaults to `true`).
 - `poi.poiSearchRadius` — Maximum radius the mod uses when scanning for points of interest.
 
 Changes can be reloaded on the fly with standard NeoForge config reloads—no restart required.
@@ -28,8 +30,9 @@ Changes can be reloaded on the fly with standard NeoForge config reloads—no re
 2. Run `/locate` or `/locate biome` as usual. Progress messages show which radius is currently scanning.
 3. For multiple nearest matches, use `/locate nearest structure <count>` or `/locate nearest biome <count>`.
 4. (Optional, config-gated) Use `/locate feature <namespace:id>` to find nearby areas whose biome settings include that placed feature.
-5. Use `/tp` immediately after; the mod preloads the target area and teleports you safely once it’s chunk-loaded.
-6. Drop `.schem` files into `config/worldedit/schematics/` to make them discoverable via `/locate schematic <name>`.
+5. If you mistype a biome, structure, entity, item, or effect id, click the suggested fix in chat to refill the corrected command.
+6. Use `/tp` immediately after; the mod preloads the target area and teleports you safely once it’s chunk-loaded.
+7. Drop `.schem` files into `config/worldedit/schematics/` to make them discoverable via `/locate schematic <name>`.
 
 ## API Integration for Other Mods
 If your mod places structures with custom code, you can register a Locate Fixer provider so `/xlocate customstructure <id>` can find them. See `API_DOCUMENTATION.md` for setup steps and examples.

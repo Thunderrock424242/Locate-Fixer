@@ -9,6 +9,7 @@ If vanilla `/locate` times out, misses far targets, or makes staff run the same 
 - **Asynchronous locate scanning** so the server can stay responsive while searches run.
 - **Locate result caching** to speed up repeated lookups in nearby areas.
 - **Progress feedback in chat** while scans are in-flight.
+- **Command error fixer** for mistyped `/locate`, `/summon`, `/give`, and `/effect` registry ids, including clickable suggestions.
 
 ## Command features
 
@@ -46,6 +47,7 @@ Everything is server-configurable in `config/locatefixer-server.toml`, including
 - Cache duration and granularity
 - Biome sampling multipliers
 - POI search radius
+- Registry-aware command error suggestions
 - Feature toggles (including `nearest`, `lastdeath`, and base/home commands)
 
 Config reload is supported, so you can tune behavior without full restarts.

@@ -7,6 +7,7 @@ import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.integration.WorldEditHook;
 import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
+import com.thunder.locatefixer.util.CommandErrorFixer;
 import net.minecraft.commands.CommandSourceStack;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.slf4j.Logger;
@@ -22,6 +23,7 @@ import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.CommandEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 
 
@@ -73,6 +75,11 @@ public class locatefixer {
         LocateFixerNearestCommand.register(dispatcher);
         LocateFixerFeatureCommand.register(dispatcher);
         LocateFixerCustomStructureCommand.register(dispatcher);
+    }
+
+    @SubscribeEvent
+    public void onCommand(CommandEvent event) {
+        CommandErrorFixer.handle(event);
     }
 
     private void onConfigLoad(ModConfigEvent.Loading event) {
