@@ -83,15 +83,16 @@ Once registered, server operators can run:
 ```
 
 - Suggestions for known ids are provided in command autocomplete.
-- Registered custom ids run through Locate Fixer's async locate handler pipeline (same worker pool + anti-spam guard behavior as the optimized locate flow).
+- Registered custom ids use Locate Fixer's bounded request pipeline and anti-spam guard.
+- The provider callback itself runs on Minecraft's server thread because it receives a live `ServerLevel`.
 - If the id is not registered, Locate Fixer returns an error message.
 
 ---
 
 ## Notes and best practices
 
-- Keep your locator method thread-safe and fast.
-  - Locate Fixer runs custom lookups asynchronously.
+- Keep your locator method fast and bounded. A slow provider blocks the server thread while its callback is running.
+- It is safe for the callback to read ordinary server-owned world state; do not start another thread that accesses the supplied `ServerLevel`.
 - Respect `maxRadius` to avoid unexpectedly expensive searches.
 - Use stable ids (`namespace:path`) and keep them lowercase.
 - If your structure locations are pre-indexed, query that index first for best performance.

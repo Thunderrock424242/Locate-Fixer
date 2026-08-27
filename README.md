@@ -1,45 +1,103 @@
 # Locate Fixer
 
-Locate Fixer is a lightweight quality-of-life mod for NeoForge 1.21.1 that makes Minecraft's `/locate`, `/locate biome`, and `/tp` commands reliable for players, staff, and pack makers. The mod keeps searching long after vanilla would give up, streams progress back to chat, and makes teleporting to the result safe even on busy servers.
+Locate Fixer is a server-first quality-of-life mod for Forge, NeoForge, and Fabric. It makes Minecraft's `/locate`, `/locate biome`, and `/tp` workflows more reliable on large or heavily modded worlds by extending searches, reporting progress, caching results, and preparing safe teleports.
+
+## Supported targets
+
+Each Minecraft version and loader has its own JAR. Install only the file matching the server's exact combination.
+
+| Minecraft | Loader | Java | Extra requirement |
+| --- | --- | --- | --- |
+| 1.20.1 | Forge 47.4.10+ | 17 | None |
+| 1.20.1 | Fabric | 17 | Fabric API |
+| 1.21.1 | NeoForge 21.1.219+ | 21 | None |
+| 1.21.1 | Fabric | 21 | Fabric API |
+
+WorldEdit is optional on every target. When present, Locate Fixer enables its schematic-folder integration.
 
 ## Highlights
-- **Escalating search radii.** Locate rings climb from 6,400 blocks up to 256,000 blocks, so far-flung structures and modded biomes are actually discoverable.
-- **Async locate workers.** Scans run in a background thread pool while the main server thread stays responsive and keeps players moving.
-- **Smart caching.** Recently found structures and biomes are cached and instantly reused for nearby requests, saving repeated scans.
-- **Nearest X mode (integrated into `/locate`).** Use `/locate nearest structure <count>` or `/locate nearest biome <count>` to list multiple closest matches instead of a single locate hit.
-- **Command error fixer.** Mistyped registry ids in `/locate`, `/summon`, `/give`, and `/effect` get clearer errors with clickable fuzzy suggestions.
-- **Safer teleports.** `/tp` to a locate result preloads the destination chunks, shows a 5‑second countdown, and only moves the player once everything is ready.
-- **Schematic helpers.** `/locate schematic <name>` hooks into the WorldEdit `config/worldedit/schematics` folder so custom builds are easy to revisit.
+
+- **Escalating search radii.** Locate rings climb from 6,400 blocks up to 256,000 blocks by default, so far-away structures and modded biomes can be discovered.
+- **Bounded locate workers.** Commands are orchestrated in a bounded background pool while access to live chunks, POIs, and mod-owned world state is handed to the server thread.
+- **Smart caching.** Recently found structures and biomes can be reused for nearby requests instead of repeating the same search.
+- **Nearest X mode.** When enabled, `/locate nearest structure <count>` and `/locate nearest biome <count>` list multiple matches.
+- **Command error fixer.** Mistyped registry IDs in `/locate`, `/summon`, `/give`, and `/effect` receive clearer errors with clickable suggestions.
+- **Safer teleports.** Teleporting to a recent locate result preloads the destination chunks, shows a countdown, and moves the player after the destination is ready.
+- **Schematic helpers.** `/locate schematic <name>` discovers files in WorldEdit's `config/worldedit/schematics` folder.
+
+## Installation
+
+1. Choose the JAR matching the Minecraft version and loader in the table above.
+2. Install it in the server's `mods` directory. Install Fabric API as well on Fabric.
+3. Client installation is optional, but using the same mod set on both sides is recommended.
+4. Start the game or server once to generate `config/locatefixer-server.toml`.
+
+Do not install two Locate Fixer target JARs together.
+
+## Modded world-generation compatibility
+
+Locate Fixer resolves targets from the active world's registries and biome source instead of using a vanilla-only biome or structure list. Registry-based world-generation mods, including TerraBlender-based biome mods, therefore participate in normal `/locate structure` and `/locate biome` searches without a dedicated integration.
+
+Custom dimensions are supported when their chunk generator exposes its possible biomes and implements Minecraft's standard locate behavior. Structures placed outside Minecraft's structure registry can use Locate Fixer's custom provider API instead.
 
 ## Configuration
-Locate Fixer is configurable through the generated `config/locatefixer-server.toml` file.
 
-- `locate.locateRings` — Ordered list of block radii to search. You can shrink or expand the search ceiling to fit your world size.
-- `locate.locateThreadCount` — Number of async worker threads (1–8) that handle structure and biome scans.
-- `locate.cacheDurationMinutes` — How long locate results stay cached before expiring.
-- `locate.cacheChunkGranularity` — How broadly cached results can be reused around the original request.
-- `locate.biomeSampleRadiusMultiplier` & `locate.biomeSampleStepMultiplier` — Tune biome sampling density for faster or more precise biome scans.
-- `locate.enableFeatureLocateCommand` — Enables `/locate feature <placed_feature_id>` for finding nearby biomes that can generate that placed feature (defaults to `false`).
-- `commands.enableCommandErrorFixer` — Rewrites vague command parse errors with registry-aware suggestions (defaults to `true`).
-- `poi.poiSearchRadius` — Maximum radius the mod uses when scanning for points of interest.
+Locate Fixer uses `config/locatefixer-server.toml` on every supported loader. Important settings include:
 
-Changes can be reloaded on the fly with standard NeoForge config reloads—no restart required.
+- `locate.locateRings` — ordered block radii used by escalating searches.
+- `locate.locateThreadCount` — async worker count from 1 to 8.
+- `locate.cacheDurationMinutes` — how long successful results stay cached.
+- `locate.cacheChunkGranularity` — how broadly nearby requests share cached results.
+- `locate.biomeSampleRadiusMultiplier` and `locate.biomeSampleStepMultiplier` — biome sampling controls.
+- `locate.enableFeatureLocateCommand` — enables `/locate feature <placed_feature_id>`; default `false`.
+- `enableNearestCommand` — enables the operator-only `/locate nearest` branch; default `false`.
+- `commands.enableCommandErrorFixer` — enables registry-aware suggestions; default `true`.
+- `poi.poiSearchRadius` — maximum point-of-interest search radius.
+
+Forge and NeoForge apply loader config reload events. Fabric rereads the same file after a successful `/reload`. See [CONFIGURATION.md](CONFIGURATION.md) for the complete guide.
 
 ## Usage
-1. Install Locate Fixer on the server (optional but recommended on clients for consistent chat messages).
-2. Run `/locate` or `/locate biome` as usual. Progress messages show which radius is currently scanning.
-3. For multiple nearest matches, use `/locate nearest structure <count>` or `/locate nearest biome <count>`.
-4. (Optional, config-gated) Use `/locate feature <namespace:id>` to find nearby areas whose biome settings include that placed feature.
-5. If you mistype a biome, structure, entity, item, or effect id, click the suggested fix in chat to refill the corrected command.
-6. Use `/tp` immediately after; the mod preloads the target area and teleports you safely once it’s chunk-loaded.
-7. Drop `.schem` files into `config/worldedit/schematics/` to make them discoverable via `/locate schematic <name>`.
 
-## API Integration for Other Mods
-If your mod places structures with custom code, you can register a Locate Fixer provider so `/xlocate customstructure <id>` can find them. See `API_DOCUMENTATION.md` for setup steps and examples.
+1. Run `/locate structure` or `/locate biome` normally. Progress messages show the active search radius.
+2. Enable `enableNearestCommand` to use `/locate nearest structure <count>` or `/locate nearest biome <count>` as an operator.
+3. Optionally enable `/locate feature <namespace:id>` through its config setting.
+4. Click a suggested correction after mistyping a supported biome, structure, entity, item, or effect ID.
+5. Use `/tp` immediately after a locate result to let Locate Fixer prepare the target area before teleporting.
+6. Put `.schem` files in `config/worldedit/schematics/` to discover them with `/locate schematic <name>`.
 
-## Compatibility
-- NeoForge 1.21.1
-- No hard dependencies
-- Designed to coexist with optimization mods and structure/worldgen content packs
+## API integration
 
-Whether you're hunting a single rare biome, confirming a structure generated, or guiding new players across a modded server, Locate Fixer keeps the locate workflow fast, chatty, and safe from start to finish.
+Mods that place structures through custom systems can register a provider for `/xlocate customstructure <id>`. See [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for the interface and examples.
+
+## Building all targets
+
+The repository is one Gradle project with shared sources plus small loader- and version-specific source sets:
+
+```text
+src/main/                    shared implementation
+src/versions/                Minecraft-version adapters
+src/platforms/               loader adapters and metadata
+targets/                     four build targets
+```
+
+On Windows:
+
+```powershell
+.\gradlew.bat collectArtifacts --no-daemon --no-problems-report
+```
+
+On Linux or macOS:
+
+```bash
+./gradlew collectArtifacts --no-daemon --no-problems-report
+```
+
+The four production JARs are collected in `build/distributions/`. Individual targets can be built with tasks such as `:forge-1.20.1:build` or `:fabric-1.21.1:build`.
+
+For an opt-in NeoForge 1.21.1 development check with TerraBlender and Biomes O' Plenty on the runtime classpath, use:
+
+```powershell
+.\gradlew.bat :neoforge-1.21.1:runServer -PterrablenderTest --no-daemon
+```
+
+The profile is test-only; TerraBlender and Biomes O' Plenty are not bundled or required by Locate Fixer.

@@ -1,0 +1,56 @@
+plugins {
+    id 'net.neoforged.moddev'
+}
+
+ext.targetMinecraftVersion = rootProject.minecraft_1211
+ext.targetLoader = 'neoforge'
+ext.targetJavaVersion = 21
+
+apply from: rootProject.file('gradle/target-common.gradle')
+
+if (rootProject.hasProperty('terrablenderTest')) {
+    configurations {
+        terrablenderTestRuntime
+        runtimeClasspath.extendsFrom terrablenderTestRuntime
+    }
+}
+
+repositories {
+    maven { url = 'https://maven.enginehub.org/repo/' }
+    if (rootProject.hasProperty('terrablenderTest')) {
+        maven { url = 'https://maven.minecraftforge.net/' }
+    }
+}
+
+neoForge {
+    version = rootProject.neoforge_1211
+
+    parchment {
+        minecraftVersion = rootProject.parchment_minecraft_1211
+        mappingsVersion = rootProject.parchment_mappings_1211
+    }
+
+    runs {
+        client { client() }
+        server {
+            server()
+            programArgument '--nogui'
+        }
+    }
+
+    mods {
+        locatefixer {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+dependencies {
+    compileOnly("com.sk89q.worldedit:worldedit-core:${rootProject.worldedit_1211}") { transitive = false }
+
+    if (rootProject.hasProperty('terrablenderTest')) {
+        terrablenderTestRuntime 'com.github.glitchfiend:GlitchCore-neoforge:1.21.1-2.1.0.0'
+        terrablenderTestRuntime 'com.github.glitchfiend:TerraBlender-neoforge:1.21.1-4.1.0.8'
+        terrablenderTestRuntime 'com.github.glitchfiend:BiomesOPlenty-neoforge:1.21.1-21.1.0.13'
+    }
+}

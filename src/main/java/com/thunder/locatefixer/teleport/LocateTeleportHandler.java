@@ -5,9 +5,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.tags.TagKey;
-import net.minecraft.world.level.biome.Biome;
-import net.neoforged.neoforge.common.Tags;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
@@ -15,12 +13,15 @@ import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -34,8 +35,7 @@ public final class LocateTeleportHandler {
     private static final int SAFE_SEARCH_DOWN = 12;
     private static final int SAFE_SEARCH_HORIZONTAL = 4;
     private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
-    private static final TagKey<Biome> CAVE_BIOME_TAG = Tags.Biomes.IS_CAVE;
-
+    private static final Set<CountdownTask> ACTIVE_COUNTDOWNS = ConcurrentHashMap.newKeySet();
     private LocateTeleportHandler() {
     }
 
@@ -52,8 +52,8 @@ public final class LocateTeleportHandler {
         ChunkPos targetChunk = new ChunkPos(targetPos);
         player.sendSystemMessage(Component.literal("📦 Preloading destination chunks around "
                 + "[" + targetChunk.x + ", " + targetChunk.z + "]"
-                + " (radius " + PRELOAD_RADIUS_CHUNKS + ", " + forcedChunks.size() + " total)."));
-        sendActionBar(player, Component.literal("📦 Chunk preload: 0/" + forcedChunks.size() + " forced (warming up world)..."));
+                + " (radius " + PRELOAD_RADIUS_CHUNKS + ", " + forcedChunks.size() + " newly forced)."));
+        sendActionBar(player, Component.literal("📦 Chunk preload: warming up destination..."));
 
         BlockPos safePos = findSafeTeleportPosition(level, targetPos);
         int offsetX = safePos.getX() - targetPos.getX();
@@ -72,7 +72,7 @@ public final class LocateTeleportHandler {
             return nearby;
         }
 
-        if (level.getBiome(targetPos).is(CAVE_BIOME_TAG)) {
+        if (level.getBiome(targetPos).is(com.thunder.locatefixer.platform.PlatformHooks.caveBiomeTag())) {
             BlockPos cave = findCaveSafePosition(level, targetPos);
             if (cave != null) {
                 return cave;
@@ -102,7 +102,8 @@ public final class LocateTeleportHandler {
      * ensuring players don't spawn inside decorations or transparent blocks.
      */
     private static BlockPos findSurfaceSafePosition(ServerLevel level, BlockPos targetPos) {
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos(targetPos.getX(), level.getMaxBuildHeight(), targetPos.getZ());
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos(
+                targetPos.getX(), level.getMaxBuildHeight() - 1, targetPos.getZ());
 
         while (cursor.getY() > level.getMinBuildHeight()) {
             BlockState state = level.getBlockState(cursor);
@@ -232,8 +233,15 @@ public final class LocateTeleportHandler {
                                           BlockPos safePos,
                                           Consumer<BlockPos> teleportAction) {
         CountdownTask task = new CountdownTask(level, player, forcedChunks, safePos, teleportAction);
-        ScheduledFuture<?> future = PRELOAD_EXECUTOR.scheduleAtFixedRate(task, 0L, 1L, TimeUnit.SECONDS);
-        task.attachFuture(future);
+        ACTIVE_COUNTDOWNS.add(task);
+        try {
+            ScheduledFuture<?> future = PRELOAD_EXECUTOR.scheduleAtFixedRate(task, 0L, 1L, TimeUnit.SECONDS);
+            task.attachFuture(future);
+        } catch (RuntimeException schedulingFailure) {
+            ACTIVE_COUNTDOWNS.remove(task);
+            releaseChunks(level, forcedChunks);
+            throw schedulingFailure;
+        }
     }
 
     private static List<ChunkPos> forceChunks(ServerLevel level, BlockPos center) {
@@ -242,8 +250,11 @@ public final class LocateTeleportHandler {
         for (int dx = -PRELOAD_RADIUS_CHUNKS; dx <= PRELOAD_RADIUS_CHUNKS; dx++) {
             for (int dz = -PRELOAD_RADIUS_CHUNKS; dz <= PRELOAD_RADIUS_CHUNKS; dz++) {
                 ChunkPos chunkPos = new ChunkPos(centerChunk.x + dx, centerChunk.z + dz);
-                level.setChunkForced(chunkPos.x, chunkPos.z, true);
-                forced.add(chunkPos);
+                // Only release tickets that Locate Fixer actually added. Chunks that were
+                // already force-loaded may belong to an admin or another mod.
+                if (level.setChunkForced(chunkPos.x, chunkPos.z, true)) {
+                    forced.add(chunkPos);
+                }
             }
         }
         return forced;
@@ -252,6 +263,18 @@ public final class LocateTeleportHandler {
     private static void releaseChunks(ServerLevel level, List<ChunkPos> forcedChunks) {
         for (ChunkPos chunkPos : forcedChunks) {
             level.setChunkForced(chunkPos.x, chunkPos.z, false);
+        }
+    }
+
+    /**
+     * Cancels countdowns before their ServerLevel is torn down. Called from the
+     * server-stopping event, which already runs on the owning server thread.
+     */
+    public static void shutdownForServerStop(MinecraftServer server) {
+        for (CountdownTask task : List.copyOf(ACTIVE_COUNTDOWNS)) {
+            if (task.level.getServer() == server) {
+                task.cancelAndRelease("Teleport cancelled because the server is stopping.");
+            }
         }
     }
 
@@ -296,6 +319,8 @@ public final class LocateTeleportHandler {
         private final Consumer<BlockPos> teleportAction;
         private int secondsLeft;
         private final AtomicReference<ScheduledFuture<?>> futureRef = new AtomicReference<>();
+        private final AtomicBoolean tickQueued = new AtomicBoolean();
+        private boolean finished;
 
         private CountdownTask(ServerLevel level, ServerPlayer player, List<ChunkPos> forcedChunks, BlockPos safePos, Consumer<BlockPos> teleportAction) {
             this.level = level;
@@ -312,6 +337,29 @@ public final class LocateTeleportHandler {
 
         @Override
         public void run() {
+            if (!tickQueued.compareAndSet(false, true)) {
+                return;
+            }
+
+            try {
+                level.getServer().execute(() -> {
+                    try {
+                        tickOnServer();
+                    } finally {
+                        tickQueued.set(false);
+                    }
+                });
+            } catch (RuntimeException rejected) {
+                tickQueued.set(false);
+                cancelFuture();
+            }
+        }
+
+        private void tickOnServer() {
+            if (finished) {
+                return;
+            }
+
             if (player.isRemoved()) {
                 cancelAndRelease("Teleport cancelled.");
                 return;
@@ -320,35 +368,44 @@ public final class LocateTeleportHandler {
             if (secondsLeft > 0) {
                 int displaySeconds = secondsLeft--;
                 int elapsed = COUNTDOWN_SECONDS - displaySeconds;
-                int forcedEstimate = Math.max(1, (int) Math.round((elapsed / (double) COUNTDOWN_SECONDS) * forcedChunks.size()));
+                int forcedEstimate = forcedChunks.isEmpty()
+                        ? 0
+                        : Math.max(1, (int) Math.round((elapsed / (double) COUNTDOWN_SECONDS) * forcedChunks.size()));
                 int percent = Math.max(0, Math.min(100, (int) Math.round((elapsed * 100.0D) / COUNTDOWN_SECONDS)));
-                level.getServer().execute(() -> player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds
+                player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds
                         + "... [preload " + forcedEstimate + "/" + forcedChunks.size() + ", "
-                        + percent + "% | target " + safePos.getX() + " " + safePos.getY() + " " + safePos.getZ() + "]")));
+                        + percent + "% | target " + safePos.getX() + " " + safePos.getY() + " " + safePos.getZ() + "]"));
                 return;
             }
 
-            level.getServer().execute(() -> {
-                try {
-                    if (!player.isRemoved()) {
-                        sendActionBar(player, Component.literal("✅ Destination ready."));
-                        teleportAction.accept(safePos);
-                    }
-                } catch (Exception e) {
-                    if (!player.isRemoved()) player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
-                } finally {
-                    releaseChunks(level, forcedChunks);
+            try {
+                if (!player.isRemoved()) {
+                    sendActionBar(player, Component.literal("✅ Destination ready."));
+                    teleportAction.accept(safePos);
                 }
-            });
-            cancelFuture();
+            } catch (Exception e) {
+                if (!player.isRemoved()) player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
+            } finally {
+                finishAndRelease();
+            }
         }
 
         private void cancelAndRelease(String message) {
-            level.getServer().execute(() -> {
-                if (!player.isRemoved()) player.sendSystemMessage(Component.literal(message));
-                releaseChunks(level, forcedChunks);
-            });
+            if (finished) {
+                return;
+            }
+            if (!player.isRemoved()) player.sendSystemMessage(Component.literal(message));
+            finishAndRelease();
+        }
+
+        private void finishAndRelease() {
+            if (finished) {
+                return;
+            }
+            finished = true;
+            releaseChunks(level, forcedChunks);
             cancelFuture();
+            ACTIVE_COUNTDOWNS.remove(this);
         }
 
         private void cancelFuture() {

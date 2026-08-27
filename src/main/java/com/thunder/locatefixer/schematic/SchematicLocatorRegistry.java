@@ -11,7 +11,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
-import com.thunder.locatefixer.locatefixer;
+import com.thunder.locatefixer.LocateFixerMod;
 
 public class SchematicLocatorRegistry {
 
@@ -74,11 +74,11 @@ public class SchematicLocatorRegistry {
                         if (!LOCATORS.containsKey(key) && !SCHEMATIC_POSITIONS.containsKey(key)) {
                             // Register a sentinel locator that reports "not pasted yet"
                             LOCATORS.put(key, (level, origin, maxRadius) -> Optional.empty());
-                            locatefixer.LOGGER.info("[LocateFixer] Indexed schematic '{}' (not yet pasted — use WorldEdit to paste it first)", name);
+                            LocateFixerMod.LOGGER.info("[LocateFixer] Indexed schematic '{}' (not yet pasted — use WorldEdit to paste it first)", name);
                         }
                     });
         } catch (IOException e) {
-            locatefixer.LOGGER.error("[LocateFixer] Failed to scan schematics: {}", e.getMessage());
+            LocateFixerMod.LOGGER.error("[LocateFixer] Failed to scan schematics: {}", e.getMessage());
         }
     }
 }

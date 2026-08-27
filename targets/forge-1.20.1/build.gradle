@@ -1,0 +1,45 @@
+plugins {
+    id 'net.neoforged.moddev.legacyforge'
+}
+
+ext.targetMinecraftVersion = rootProject.minecraft_1201
+ext.targetLoader = 'forge'
+ext.targetJavaVersion = 17
+
+apply from: rootProject.file('gradle/target-common.gradle')
+
+repositories {
+    maven { url = 'https://maven.enginehub.org/repo/' }
+}
+
+legacyForge {
+    version = "${rootProject.minecraft_1201}-${rootProject.forge_1201}"
+
+    runs {
+        client { client() }
+        server {
+            server()
+            programArgument '--nogui'
+        }
+    }
+
+    mods {
+        locatefixer {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+mixin {
+    add sourceSets.main, 'mixins.locatefixer.refmap.json'
+    config 'mixins.locatefixer.json'
+}
+
+dependencies {
+    compileOnly("com.sk89q.worldedit:worldedit-core:${rootProject.worldedit_1201}") { transitive = false }
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+}
+
+tasks.named('jar', Jar).configure {
+    manifest.attributes('MixinConfigs': 'mixins.locatefixer.json')
+}

@@ -1,0 +1,84 @@
+package com.thunder.locatefixer.mixin;
+
+import com.thunder.locatefixer.config.LocateFixerConfig;
+import com.thunder.locatefixer.util.AsyncLocateHandler;
+import com.thunder.locatefixer.util.CommandErrorFixer;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.arguments.ResourceOrTagArgument;
+import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.commands.LocateCommand;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.ai.village.poi.PoiType;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.levelgen.structure.Structure;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+
+@Mixin(LocateCommand.class)
+public class LocateCommandMixin {
+
+    private static boolean isLocateFeaturesEnabled() {
+        try {
+            return LocateFixerConfig.SERVER.locateRings.get() != null;
+        } catch (IllegalStateException ignored) {
+            return true;
+        }
+    }
+
+    @Inject(method = "locateStructure", at = @At("HEAD"), cancellable = true)
+    private static void locatefix$asyncLocateStructure(
+            CommandSourceStack source,
+            ResourceOrTagKeyArgument.Result<Structure> structure,
+            CallbackInfoReturnable<Integer> cir
+    ) {
+        if (!isLocateFeaturesEnabled()) {
+            return;
+        }
+        ServerLevel level = source.getLevel();
+        BlockPos origin = BlockPos.containing(source.getPosition());
+
+        if (CommandErrorFixer.sendUnknownStructure(source, structure)) {
+            cir.setReturnValue(0);
+            return;
+        }
+
+        AsyncLocateHandler.locateStructureAsync(source, structure, origin, level);
+        cir.setReturnValue(1); // fake immediate return
+    }
+
+    @Inject(method = "locateBiome", at = @At("HEAD"), cancellable = true)
+    private static void locatefix$asyncLocateBiome(
+            CommandSourceStack source,
+            ResourceOrTagArgument.Result<Biome> biome,
+            CallbackInfoReturnable<Integer> cir
+    ) {
+        if (!isLocateFeaturesEnabled()) {
+            return;
+        }
+        ServerLevel level = source.getLevel();
+        BlockPos origin = BlockPos.containing(source.getPosition());
+
+        AsyncLocateHandler.locateBiomeAsync(source, biome, origin, level);
+        cir.setReturnValue(1); // fake return — actual logic runs async
+    }
+
+    @Inject(method = "locatePoi", at = @At("HEAD"), cancellable = true)
+    private static void locatefix$asyncLocatePoi(
+            CommandSourceStack source,
+            ResourceOrTagArgument.Result<PoiType> poiType,
+            CallbackInfoReturnable<Integer> cir
+    ) {
+        if (!isLocateFeaturesEnabled()) {
+            return;
+        }
+        ServerLevel level = source.getLevel();
+        BlockPos origin = BlockPos.containing(source.getPosition());
+
+        AsyncLocateHandler.locatePoiAsync(source, poiType, origin, level);
+        cir.setReturnValue(1); // fake return — actual logic runs async
+    }
+}

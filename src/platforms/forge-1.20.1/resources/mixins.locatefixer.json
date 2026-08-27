@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.thunder.locatefixer.mixin",
+  "refmap": "mixins.locatefixer.refmap.json",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "LocateCommandMixin",
+    "TeleportCommandMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

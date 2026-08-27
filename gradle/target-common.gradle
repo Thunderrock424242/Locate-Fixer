@@ -1,0 +1,73 @@
+apply plugin: 'java-library'
+apply plugin: 'idea'
+apply plugin: 'maven-publish'
+
+version = rootProject.mod_version
+group = rootProject.mod_group_id
+
+base {
+    archivesName = "${rootProject.mod_id}-${targetMinecraftVersion}-${targetLoader}"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion as int)
+    withSourcesJar()
+}
+
+sourceSets {
+    main {
+        java.setSrcDirs([
+                rootProject.file('src/main/java'),
+                rootProject.file("src/versions/${targetMinecraftVersion}/java"),
+                rootProject.file("src/platforms/${targetLoader}/java"),
+                rootProject.file("src/platforms/${targetLoader}-${targetMinecraftVersion}/java")
+        ])
+        resources.setSrcDirs([
+                rootProject.file('src/main/resources'),
+                rootProject.file("src/versions/${targetMinecraftVersion}/resources"),
+                rootProject.file("src/platforms/${targetLoader}/resources"),
+                rootProject.file("src/platforms/${targetLoader}-${targetMinecraftVersion}/resources")
+        ])
+    }
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    def replacements = [
+            mod_id            : rootProject.mod_id,
+            mod_name          : rootProject.mod_name,
+            mod_license       : rootProject.mod_license,
+            mod_version       : rootProject.mod_version,
+            mod_authors       : rootProject.mod_authors,
+            mod_description   : rootProject.mod_description,
+            minecraft_version : targetMinecraftVersion,
+            loader_name       : targetLoader
+    ]
+    inputs.properties replacements
+    filesMatching(['fabric.mod.json', 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml']) {
+        expand replacements
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = targetJavaVersion as int
+}
+
+tasks.withType(Jar).configureEach {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            from components.java
+        }
+    }
+}
+
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}

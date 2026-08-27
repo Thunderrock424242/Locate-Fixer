@@ -12,7 +12,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
 import net.minecraft.core.Registry;
-import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -79,10 +78,13 @@ public final class LocateFixerFeatureCommand {
             }
 
             Optional<BlockPos> result = findNearestFeatureBiome(level, origin, featureKey, searchRings);
-            level.getServer().execute(() -> result.ifPresentOrElse(
-                    pos -> LocateResultHelper.sendResult(source, "commands.locatefixer.base.success", featureId.toString(), origin, pos, true),
-                    () -> source.sendFailure(Component.literal("❌ Feature '" + featureId + "' not found within " + searchRings[searchRings.length - 1] + " blocks."))
-            ));
+            level.getServer().execute(() -> result.ifPresentOrElse(pos -> {
+                BlockPos surface = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos);
+                LocateResultHelper.sendResult(
+                        source, "commands.locatefixer.base.success", featureId.toString(), origin, surface, true);
+            }, () -> source.sendFailure(Component.literal(
+                    "❌ Feature '" + featureId + "' not found within "
+                            + searchRings[searchRings.length - 1] + " blocks."))));
         });
 
         return 1;
@@ -94,51 +96,21 @@ public final class LocateFixerFeatureCommand {
             ResourceKey<PlacedFeature> featureKey,
             int[] searchRings
     ) {
-        int originChunkX = SectionPos.blockToSectionCoord(origin.getX());
-        int originChunkZ = SectionPos.blockToSectionCoord(origin.getZ());
-        final int chunkStep = 4;
-
         for (int radius : sortedRings(searchRings)) {
-            int chunkRadius = Math.max(1, radius >> 4);
-            BlockPos nearest = null;
-            long nearestDistanceSq = Long.MAX_VALUE;
-
-            for (int offset = -chunkRadius; offset <= chunkRadius; offset += chunkStep) {
-                nearest = pickNearest(level, origin, featureKey, originChunkX + offset, originChunkZ - chunkRadius, nearest, nearestDistanceSq);
-                if (nearest != null) nearestDistanceSq = distSqXZ(origin, nearest);
-                nearest = pickNearest(level, origin, featureKey, originChunkX + offset, originChunkZ + chunkRadius, nearest, nearestDistanceSq);
-                if (nearest != null) nearestDistanceSq = distSqXZ(origin, nearest);
-                nearest = pickNearest(level, origin, featureKey, originChunkX - chunkRadius, originChunkZ + offset, nearest, nearestDistanceSq);
-                if (nearest != null) nearestDistanceSq = distSqXZ(origin, nearest);
-                nearest = pickNearest(level, origin, featureKey, originChunkX + chunkRadius, originChunkZ + offset, nearest, nearestDistanceSq);
-                if (nearest != null) nearestDistanceSq = distSqXZ(origin, nearest);
-            }
-
-            if (nearest != null) {
-                return Optional.of(nearest);
+            int horizontalInterval = Math.max(32, Math.min(256, radius / 256));
+            var match = level.findClosestBiome3d(
+                    biome -> biomeContainsFeature(biome, featureKey),
+                    origin,
+                    radius,
+                    horizontalInterval,
+                    64
+            );
+            if (match != null) {
+                return Optional.of(match.getFirst());
             }
         }
 
         return Optional.empty();
-    }
-
-    private static BlockPos pickNearest(
-            ServerLevel level,
-            BlockPos origin,
-            ResourceKey<PlacedFeature> featureKey,
-            int chunkX,
-            int chunkZ,
-            BlockPos currentNearest,
-            long currentNearestDistanceSq
-    ) {
-        BlockPos candidate = chunkCenter(chunkX, chunkZ);
-        if (!biomeContainsFeature(level.getBiome(candidate), featureKey)) {
-            return currentNearest;
-        }
-
-        BlockPos surface = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, candidate);
-        long distanceSq = distSqXZ(origin, surface);
-        return distanceSq < currentNearestDistanceSq ? surface : currentNearest;
     }
 
     private static boolean biomeContainsFeature(Holder<Biome> biome, ResourceKey<PlacedFeature> featureKey) {
@@ -162,13 +134,4 @@ public final class LocateFixerFeatureCommand {
                 .toArray();
     }
 
-    private static BlockPos chunkCenter(int chunkX, int chunkZ) {
-        return new BlockPos((chunkX << 4) + 8, 0, (chunkZ << 4) + 8);
-    }
-
-    private static long distSqXZ(BlockPos a, BlockPos b) {
-        long dx = (long) b.getX() - a.getX();
-        long dz = (long) b.getZ() - a.getZ();
-        return dx * dx + dz * dz;
-    }
 }

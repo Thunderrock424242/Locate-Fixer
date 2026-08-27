@@ -55,7 +55,8 @@ public class StructureLocatorRegistry {
     }
 
     /**
-     * Tries to locate a registered structure.
+     * Tries to locate a registered structure. Locate Fixer invokes this method on
+     * Minecraft's server thread when servicing the public command.
      */
     public static Optional<BlockPos> locate(String id, ServerLevel level, BlockPos origin, int maxRadius) {
         CustomStructureLocator locator = LOCATORS.get(normalizeId(id));
