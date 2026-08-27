@@ -83,13 +83,13 @@ targets/                     four build targets
 On Windows:
 
 ```powershell
-.\gradlew.bat collectArtifacts --no-daemon --no-problems-report
+.\gradlew.bat collectArtifacts --no-daemon
 ```
 
 On Linux or macOS:
 
 ```bash
-./gradlew collectArtifacts --no-daemon --no-problems-report
+./gradlew collectArtifacts --no-daemon
 ```
 
 The four production JARs are collected in `build/distributions/`. Individual targets can be built with tasks such as `:forge-1.20.1:build` or `:fabric-1.21.1:build`.

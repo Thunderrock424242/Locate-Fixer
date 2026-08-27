@@ -8,6 +8,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 
@@ -34,6 +35,8 @@ public final class LocateTeleportHandler {
     private static final int SAFE_SEARCH_UP = 24;
     private static final int SAFE_SEARCH_DOWN = 12;
     private static final int SAFE_SEARCH_HORIZONTAL = 4;
+    private static final int POCKET_RADIUS = 1;
+    private static final int POCKET_HEIGHT = 3;
     private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
     private static final Set<CountdownTask> ACTIVE_COUNTDOWNS = ConcurrentHashMap.newKeySet();
     private LocateTeleportHandler() {
@@ -55,42 +58,22 @@ public final class LocateTeleportHandler {
                 + " (radius " + PRELOAD_RADIUS_CHUNKS + ", " + forcedChunks.size() + " newly forced)."));
         sendActionBar(player, Component.literal("📦 Chunk preload: warming up destination..."));
 
-        BlockPos safePos = findSafeTeleportPosition(level, targetPos);
+        LandingPlan landingPlan = findLandingPlan(level, targetPos);
+        BlockPos safePos = landingPlan.position();
         int offsetX = safePos.getX() - targetPos.getX();
         int offsetY = safePos.getY() - targetPos.getY();
         int offsetZ = safePos.getZ() - targetPos.getZ();
         player.sendSystemMessage(Component.literal("🛰 Teleport safety scan complete: "
                 + safePos.getX() + " " + safePos.getY() + " " + safePos.getZ()
                 + " (offset Δ" + offsetX + ", Δ" + offsetY + ", Δ" + offsetZ + ")."));
-        scheduleCountdown(level, player, forcedChunks, safePos, teleportAction);
+        if (landingPlan.carvePocket()) {
+            player.sendSystemMessage(Component.literal("⛏ An underground safety pocket will be prepared at the destination."));
+        }
+        scheduleCountdown(level, player, forcedChunks, targetPos, safePos, teleportAction);
     }
 
     public static BlockPos findSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
-        // Keep the teleport anchored to the requested coordinate whenever it is safe.
-        BlockPos nearby = findNearbySafePosition(level, targetPos);
-        if (nearby != null) {
-            return nearby;
-        }
-
-        if (level.getBiome(targetPos).is(com.thunder.locatefixer.platform.PlatformHooks.caveBiomeTag())) {
-            BlockPos cave = findCaveSafePosition(level, targetPos);
-            if (cave != null) {
-                return cave;
-            }
-        }
-
-        BlockPos caveNearSurface = findNearSurfaceCaveSafePosition(level, targetPos);
-        if (caveNearSurface != null) {
-            return caveNearSurface;
-        }
-
-        // Last resort: use the same X/Z on the surface instead of failing outright.
-        BlockPos surface = findPreferredSurfacePosition(level, targetPos);
-        if (surface != null) {
-            return surface;
-        }
-
-        return targetPos;
+        return findLandingPlan(level, targetPos).position();
     }
 
     public static BlockPos findSurfaceSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
@@ -137,102 +120,165 @@ public final class LocateTeleportHandler {
         return null;
     }
 
-    private static BlockPos findNearSurfaceCaveSafePosition(ServerLevel level, BlockPos targetPos) {
-        int caveScanDepth = Math.max(SAFE_SEARCH_DOWN, 20);
-        for (int radius = 0; radius <= SAFE_SEARCH_HORIZONTAL; radius++) {
-            for (int dx = -radius; dx <= radius; dx++) {
-                for (int dz = -radius; dz <= radius; dz++) {
-                    if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
-                    int x = targetPos.getX() + dx;
-                    int z = targetPos.getZ() + dz;
-                    int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
-                    int minY = Math.max(level.getMinBuildHeight() + 1, surfaceY - caveScanDepth);
-                    for (int y = surfaceY - 1; y >= minY; y--) {
-                        BlockPos candidate = new BlockPos(x, y, z);
-                        if (isSafePosition(level, candidate)) {
-                            return candidate;
-                        }
+    private static BlockPos findNearbySafePosition(ServerLevel level, BlockPos targetPos) {
+        BlockPos best = null;
+        long bestDistanceSq = Long.MAX_VALUE;
+        int minY = Math.max(level.getMinBuildHeight() + 1, targetPos.getY() - SAFE_SEARCH_DOWN);
+        int maxY = Math.min(level.getMaxBuildHeight() - SAFE_AREA_HEIGHT, targetPos.getY() + SAFE_SEARCH_UP);
+
+        for (int y = minY; y <= maxY; y++) {
+            for (int dx = -SAFE_SEARCH_HORIZONTAL; dx <= SAFE_SEARCH_HORIZONTAL; dx++) {
+                for (int dz = -SAFE_SEARCH_HORIZONTAL; dz <= SAFE_SEARCH_HORIZONTAL; dz++) {
+                    BlockPos candidate = new BlockPos(targetPos.getX() + dx, y, targetPos.getZ() + dz);
+                    long distanceSq = distanceSq(targetPos, candidate);
+                    if (distanceSq < bestDistanceSq && isSafePosition(level, candidate)) {
+                        best = candidate;
+                        bestDistanceSq = distanceSq;
                     }
                 }
             }
         }
-        return null;
+
+        return best;
     }
 
-    private static BlockPos findCaveSafePosition(ServerLevel level, BlockPos targetPos) {
-        if (isSafePosition(level, targetPos)) {
-            return targetPos;
+    private static LandingPlan findLandingPlan(ServerLevel level, BlockPos targetPos) {
+        // Prefer putting the player on top of the located biome or structure.
+        // The surface search keeps the requested X/Z first and only expands a few
+        // blocks when that column has no safe landing.
+        BlockPos surface = findPreferredSurfacePosition(level, targetPos);
+        if (surface != null) {
+            return new LandingPlan(surface, false);
         }
 
-        int maxRange = Math.max(SAFE_SEARCH_UP, SAFE_SEARCH_DOWN);
-        for (int vertical = 0; vertical <= maxRange; vertical++) {
-            if (vertical == 0) {
-                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, 0);
-                if (match != null) return match;
-                continue;
-            }
+        // Some dimensions and enclosed structures have no usable surface nearby.
+        // In that case, keep the fallback as close to the locate coordinate as possible.
+        BlockPos nearbySafe = findNearbySafePosition(level, targetPos);
 
-            if (vertical <= SAFE_SEARCH_UP) {
-                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, vertical);
-                if (match != null) return match;
-            }
-
-            if (vertical <= SAFE_SEARCH_DOWN) {
-                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, -vertical);
-                if (match != null) return match;
+        if (isUnderground(level, targetPos)) {
+            BlockPos pocketAnchor = findNearestPocketAnchor(level, targetPos);
+            if (pocketAnchor != null && (nearbySafe == null
+                    || distanceSq(targetPos, pocketAnchor) < distanceSq(targetPos, nearbySafe))) {
+                return new LandingPlan(pocketAnchor, true);
             }
         }
 
-        return null;
+        if (nearbySafe != null) {
+            return new LandingPlan(nearbySafe, false);
+        }
+
+        return new LandingPlan(targetPos, false);
     }
 
-    private static BlockPos findNearbySafePosition(ServerLevel level, BlockPos targetPos) {
-        if (isSafePosition(level, targetPos)) {
-            return targetPos;
-        }
+    private static BlockPos prepareLandingPosition(ServerLevel level, BlockPos targetPos) {
+        LandingPlan finalPlan = findLandingPlan(level, targetPos);
+        BlockPos finalPos = finalPlan.position();
 
-        int maxRange = Math.max(SAFE_SEARCH_UP, SAFE_SEARCH_DOWN);
-        for (int vertical = 0; vertical <= maxRange; vertical++) {
-            if (vertical == 0) {
-                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, 0);
-                if (match != null) return match;
-                continue;
-            }
-
-            if (vertical <= SAFE_SEARCH_DOWN) {
-                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, -vertical);
-                if (match != null) return match;
-            }
-
-            if (vertical <= SAFE_SEARCH_UP) {
-                BlockPos match = findCaveSafePositionAtYOffset(level, targetPos, vertical);
-                if (match != null) return match;
-            }
-        }
-
-        return null;
-    }
-
-    private static BlockPos findCaveSafePositionAtYOffset(ServerLevel level, BlockPos targetPos, int yOffset) {
-        BlockPos base = targetPos.offset(0, yOffset, 0);
-        for (int radius = 0; radius <= SAFE_SEARCH_HORIZONTAL; radius++) {
-            for (int dx = -radius; dx <= radius; dx++) {
-                for (int dz = -radius; dz <= radius; dz++) {
-                    if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
-                    BlockPos candidate = base.offset(dx, 0, dz);
-                    if (isSafePosition(level, candidate)) return candidate;
+        if (finalPlan.carvePocket() && !carveSafetyPocket(level, finalPos)) {
+            // Re-scan in case the destination changed during the preload countdown.
+            BlockPos naturalFallback = findNearbySafePosition(level, targetPos);
+            if (naturalFallback != null) {
+                finalPos = naturalFallback;
+            } else {
+                BlockPos surfaceFallback = findPreferredSurfacePosition(level, targetPos);
+                if (surfaceFallback != null) {
+                    finalPos = surfaceFallback;
                 }
             }
         }
-        return null;
+
+        if (!isSafePosition(level, finalPos)) {
+            throw new IllegalStateException("No safe landing position could be prepared near the destination.");
+        }
+        return finalPos;
+    }
+
+    private static boolean isUnderground(ServerLevel level, BlockPos targetPos) {
+        int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                targetPos.getX(), targetPos.getZ());
+        return targetPos.getY() + SAFE_AREA_HEIGHT < surfaceY;
+    }
+
+    private static BlockPos findNearestPocketAnchor(ServerLevel level, BlockPos targetPos) {
+        BlockPos best = null;
+        long bestDistanceSq = Long.MAX_VALUE;
+        int minY = Math.max(level.getMinBuildHeight() + 1, targetPos.getY() - SAFE_SEARCH_DOWN);
+        int maxY = Math.min(level.getMaxBuildHeight() - POCKET_HEIGHT, targetPos.getY() + SAFE_SEARCH_UP);
+
+        for (int y = minY; y <= maxY; y++) {
+            for (int dx = -SAFE_SEARCH_HORIZONTAL; dx <= SAFE_SEARCH_HORIZONTAL; dx++) {
+                for (int dz = -SAFE_SEARCH_HORIZONTAL; dz <= SAFE_SEARCH_HORIZONTAL; dz++) {
+                    BlockPos candidate = new BlockPos(targetPos.getX() + dx, y, targetPos.getZ() + dz);
+                    long distanceSq = distanceSq(targetPos, candidate);
+                    if (distanceSq < bestDistanceSq && canCarveSafetyPocket(level, candidate)) {
+                        best = candidate;
+                        bestDistanceSq = distanceSq;
+                    }
+                }
+            }
+        }
+
+        return best;
+    }
+
+    private static boolean canCarveSafetyPocket(ServerLevel level, BlockPos anchor) {
+        BlockPos floorPos = anchor.below();
+        BlockState floor = level.getBlockState(floorPos);
+        if (!floor.isFaceSturdy(level, floorPos, net.minecraft.core.Direction.UP)
+                || !floor.getFluidState().isEmpty()) {
+            return false;
+        }
+
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        for (int dx = -POCKET_RADIUS; dx <= POCKET_RADIUS; dx++) {
+            for (int dz = -POCKET_RADIUS; dz <= POCKET_RADIUS; dz++) {
+                for (int dy = 0; dy < POCKET_HEIGHT; dy++) {
+                    cursor.set(anchor.getX() + dx, anchor.getY() + dy, anchor.getZ() + dz);
+                    BlockState state = level.getBlockState(cursor);
+                    if (!state.getFluidState().isEmpty()
+                            || level.getBlockEntity(cursor) != null
+                            || (!state.isAir() && state.getDestroySpeed(level, cursor) < 0.0F)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    private static boolean carveSafetyPocket(ServerLevel level, BlockPos anchor) {
+        if (!canCarveSafetyPocket(level, anchor)) {
+            return false;
+        }
+
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        for (int dx = -POCKET_RADIUS; dx <= POCKET_RADIUS; dx++) {
+            for (int dz = -POCKET_RADIUS; dz <= POCKET_RADIUS; dz++) {
+                for (int dy = 0; dy < POCKET_HEIGHT; dy++) {
+                    cursor.set(anchor.getX() + dx, anchor.getY() + dy, anchor.getZ() + dz);
+                    if (!level.isEmptyBlock(cursor)) {
+                        level.setBlock(cursor, Blocks.AIR.defaultBlockState(), 3);
+                    }
+                }
+            }
+        }
+        return isSafePosition(level, anchor);
+    }
+
+    private static long distanceSq(BlockPos first, BlockPos second) {
+        long dx = (long) second.getX() - first.getX();
+        long dy = (long) second.getY() - first.getY();
+        long dz = (long) second.getZ() - first.getZ();
+        return dx * dx + dy * dy + dz * dz;
     }
 
     private static void scheduleCountdown(ServerLevel level,
                                           ServerPlayer player,
                                           List<ChunkPos> forcedChunks,
+                                          BlockPos targetPos,
                                           BlockPos safePos,
                                           Consumer<BlockPos> teleportAction) {
-        CountdownTask task = new CountdownTask(level, player, forcedChunks, safePos, teleportAction);
+        CountdownTask task = new CountdownTask(level, player, forcedChunks, targetPos, safePos, teleportAction);
         ACTIVE_COUNTDOWNS.add(task);
         try {
             ScheduledFuture<?> future = PRELOAD_EXECUTOR.scheduleAtFixedRate(task, 0L, 1L, TimeUnit.SECONDS);
@@ -311,10 +357,14 @@ public final class LocateTeleportHandler {
         return true;
     }
 
+    private record LandingPlan(BlockPos position, boolean carvePocket) {
+    }
+
     private static final class CountdownTask implements Runnable {
         private final ServerLevel level;
         private final ServerPlayer player;
         private final List<ChunkPos> forcedChunks;
+        private final BlockPos targetPos;
         private final BlockPos safePos;
         private final Consumer<BlockPos> teleportAction;
         private int secondsLeft;
@@ -322,10 +372,16 @@ public final class LocateTeleportHandler {
         private final AtomicBoolean tickQueued = new AtomicBoolean();
         private boolean finished;
 
-        private CountdownTask(ServerLevel level, ServerPlayer player, List<ChunkPos> forcedChunks, BlockPos safePos, Consumer<BlockPos> teleportAction) {
+        private CountdownTask(ServerLevel level,
+                              ServerPlayer player,
+                              List<ChunkPos> forcedChunks,
+                              BlockPos targetPos,
+                              BlockPos safePos,
+                              Consumer<BlockPos> teleportAction) {
             this.level = level;
             this.player = player;
             this.forcedChunks = forcedChunks;
+            this.targetPos = targetPos;
             this.safePos = safePos;
             this.teleportAction = teleportAction;
             this.secondsLeft = COUNTDOWN_SECONDS;
@@ -380,8 +436,9 @@ public final class LocateTeleportHandler {
 
             try {
                 if (!player.isRemoved()) {
+                    BlockPos finalSafePos = prepareLandingPosition(level, targetPos);
                     sendActionBar(player, Component.literal("✅ Destination ready."));
-                    teleportAction.accept(safePos);
+                    teleportAction.accept(finalSafePos);
                 }
             } catch (Exception e) {
                 if (!player.isRemoved()) player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
