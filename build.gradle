@@ -21,7 +21,7 @@ tasks.register('collectArtifacts', Sync) {
     into layout.buildDirectory.dir('distributions')
     subprojects.each { target ->
         from(target.layout.buildDirectory.dir('libs')) {
-            include '*.jar'
+            include "*-${rootProject.version}.jar"
             exclude '*-sources.jar', '*-dev.jar', '*-dev-shadow.jar'
         }
     }

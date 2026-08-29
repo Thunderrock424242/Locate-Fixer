@@ -29,6 +29,22 @@ sourceSets {
                 rootProject.file("src/platforms/${targetLoader}-${targetMinecraftVersion}/resources")
         ])
     }
+    test {
+        java.setSrcDirs([rootProject.file('src/test/java')])
+        resources.setSrcDirs([rootProject.file('src/test/resources')])
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
 }
 
 tasks.named('processResources', ProcessResources).configure {

@@ -1,6 +1,7 @@
 package com.thunder.locatefixer.fabric;
 
 import com.thunder.locatefixer.LocateFixerMod;
+import com.thunder.locatefixer.LocateRuntime;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import net.fabricmc.loader.api.FabricLoader;
@@ -38,11 +39,35 @@ final class FabricConfigBridge {
                     parseInt(values.get("poiSearchRadius"), DEFAULTS.poiSearchRadius()),
                     parseBoolean(values.get("enableFeatureLocateCommand"), DEFAULTS.enableFeatureLocateCommand()),
                     parseBoolean(values.get("enableNearestCommand"), DEFAULTS.enableNearestCommand()),
-                    parseBoolean(values.get("enableCommandErrorFixer"), DEFAULTS.enableCommandErrorFixer())
+                    parseBoolean(values.get("enableCommandErrorFixer"), DEFAULTS.enableCommandErrorFixer()),
+                    parseBoolean(values.get("adaptiveSearchEnabled"), DEFAULTS.adaptiveSearchEnabled()),
+                    parseInt(values.get("queueMaxPending"), DEFAULTS.queueMaxPending()),
+                    parseInt(values.get("searchTimeoutSeconds"), DEFAULTS.searchTimeoutSeconds()),
+                    parseInt(values.get("cacheMaxEntries"), DEFAULTS.cacheMaxEntries()),
+                    parseBoolean(values.get("persistentIndexEnabled"), DEFAULTS.persistentIndexEnabled()),
+                    parseInt(values.get("persistentIndexMaxEntries"), DEFAULTS.persistentIndexMaxEntries()),
+                    parseInt(values.get("persistentIndexExpiryDays"), DEFAULTS.persistentIndexExpiryDays()),
+                    parseInt(values.get("persistentIndexVerificationMinutes"), DEFAULTS.persistentIndexVerificationMinutes()),
+                    parseInt(values.get("teleportPreloadRadiusChunks"), DEFAULTS.teleportPreloadRadiusChunks()),
+                    parseInt(values.get("teleportCountdownSeconds"), DEFAULTS.teleportCountdownSeconds()),
+                    parseBoolean(values.get("teleportCountdownEnabled"), DEFAULTS.teleportCountdownEnabled()),
+                    parseInt(values.get("teleportTimeoutSeconds"), DEFAULTS.teleportTimeoutSeconds()),
+                    parseInt(values.get("safeHorizontalRadius"), DEFAULTS.safeHorizontalRadius()),
+                    parseInt(values.get("safeVerticalRange"), DEFAULTS.safeVerticalRange()),
+                    parseBoolean(values.get("allowWaterLanding"), DEFAULTS.allowWaterLanding()),
+                    parseBoolean(values.get("allowLavaLanding"), DEFAULTS.allowLavaLanding()),
+                    parseBoolean(values.get("allowFireLanding"), DEFAULTS.allowFireLanding()),
+                    parseBoolean(values.get("allowPowderSnowLanding"), DEFAULTS.allowPowderSnowLanding()),
+                    parseBoolean(values.get("returnPointEnabled"), DEFAULTS.returnPointEnabled()),
+                    parseBoolean(values.get("enableBiomeSpyCompatibility"), DEFAULTS.enableBiomeSpyCompatibility()),
+                    parseBoolean(values.get("enableCompassCompatibility"), DEFAULTS.enableCompassCompatibility()),
+                    parseBoolean(values.get("enableAsyncLocatorConflictMode"), DEFAULTS.enableAsyncLocatorConflictMode()),
+                    parseBoolean(values.get("benchmarkEnabled"), DEFAULTS.benchmarkEnabled())
             ));
             AsyncLocateHandler.reloadConfig();
+            LocateRuntime.reloadConfig();
         } catch (Exception exception) {
-            LocateFixerMod.LOGGER.error("[LocateFixer] Could not load Fabric config '{}'; using the last valid values.",
+            LocateFixerMod.LOGGER.error("[LocateUnbound] Could not load Fabric config '{}'; using the last valid values.",
                     CONFIG_PATH, exception);
         }
     }
@@ -137,17 +162,52 @@ final class FabricConfigBridge {
 
     private static String defaultToml() {
         return """
-                # Locate Fixer server configuration
+                # Locate Unbound server configuration (the filename stays stable for compatibility)
                 enableNearestCommand = false
 
-                [locate]
+                [search]
                 locateRings = [6400, 16000, 32000, 64000, 128000, 256000]
                 locateThreadCount = 1
-                cacheDurationMinutes = 30
-                cacheChunkGranularity = 8
                 biomeSampleRadiusMultiplier = 1.5
                 biomeSampleStepMultiplier = 1.75
+                adaptiveSearchEnabled = true
                 enableFeatureLocateCommand = false
+
+                [queue]
+                queueMaxPending = 32
+                searchTimeoutSeconds = 120
+
+                [cache]
+                cacheDurationMinutes = 30
+                cacheChunkGranularity = 8
+                cacheMaxEntries = 512
+
+                [index]
+                persistentIndexEnabled = true
+                persistentIndexMaxEntries = 8192
+                persistentIndexExpiryDays = 90
+                persistentIndexVerificationMinutes = 30
+
+                [teleport]
+                teleportPreloadRadiusChunks = 1
+                teleportCountdownSeconds = 5
+                teleportCountdownEnabled = true
+                teleportTimeoutSeconds = 30
+                safeHorizontalRadius = 8
+                safeVerticalRange = 48
+                allowWaterLanding = false
+                allowLavaLanding = false
+                allowFireLanding = false
+                allowPowderSnowLanding = false
+                returnPointEnabled = false
+
+                [integrations]
+                enableBiomeSpyCompatibility = true
+                enableCompassCompatibility = true
+                enableAsyncLocatorConflictMode = true
+
+                [benchmark]
+                benchmarkEnabled = false
 
                 [commands]
                 enableCommandErrorFixer = true

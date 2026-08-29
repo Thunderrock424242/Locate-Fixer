@@ -67,6 +67,11 @@ public abstract class TeleportCommandMixin {
         double y = targetVec.y;
         double z = targetVec.z;
 
+        BlockPos requestedPos = BlockPos.containing(x, y, z);
+        if (!LocateTeleportHandler.consumeAuthorization(player, level, requestedPos)) {
+            return;
+        }
+
         PlatformHooks.TeleportTarget event = PlatformHooks.adjustTeleport(player, x, y, z);
         if (!event.allowed()) {
             return;

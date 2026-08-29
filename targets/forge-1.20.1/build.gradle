@@ -14,6 +14,7 @@ repositories {
 
 legacyForge {
     version = "${rootProject.minecraft_1201}-${rootProject.forge_1201}"
+    addModdingDependenciesTo(sourceSets.test)
 
     runs {
         client { client() }

@@ -1,98 +1,120 @@
-# Locate Fixer API for Modders
+# Locate Unbound API
 
-This document explains how another mod can expose non-vanilla structures to Locate Fixer.
+Locate Unbound 4.0 exposes a unified provider API for structures, biomes, POIs, placed features, and generic locations. The technical package and mod ID remain `com.thunder.locatefixer` and `locatefixer` for binary and world compatibility.
 
-## Goal
-If your mod places structures through custom logic (instead of vanilla structure registration), you can register a custom locator so admins can run:
+## Unified provider
 
-```mcfunction
-/xlocate customstructure <your_mod:structure_id>
-```
-
----
-
-## 1) Implement the provider interface
-
-Create or adapt your structure manager class to implement:
-
-- `com.thunder.locatefixer.api.LocateFixerStructureProvider`
-
-Required methods:
-
-- `String locateFixerStructureId()`
-- `Optional<BlockPos> locateNearest(ServerLevel level, BlockPos origin, int maxRadius)`
-
-### Example
+Implement `com.thunder.locatefixer.api.LocatorProvider` and register it during common setup:
 
 ```java
-package com.example.mymod.integration;
-
-import com.thunder.locatefixer.api.LocateFixerStructureProvider;
-import net.minecraft.core.BlockPos;
-import net.minecraft.server.level.ServerLevel;
-
-import java.util.Optional;
-
-public final class SkyFortressLocator implements LocateFixerStructureProvider {
-
+LocatorProviderRegistry.register(new LocatorProvider() {
     @Override
-    public String locateFixerStructureId() {
+    public String id() {
         return "mymod:sky_fortress";
     }
 
     @Override
-    public Optional<BlockPos> locateNearest(ServerLevel level, BlockPos origin, int maxRadius) {
-        // Replace with your own search/index logic.
-        // Return Optional.empty() when no match is found.
-        return MyStructureIndex.findNearestSkyFortress(level.dimension(), origin, maxRadius);
+    public String displayName() {
+        return "Sky Fortress";
     }
-}
+
+    @Override
+    public LocatorTargetType targetType() {
+        return LocatorTargetType.CUSTOM;
+    }
+
+    @Override
+    public Set<String> supportedDimensions() {
+        return Set.of("minecraft:overworld");
+    }
+
+    @Override
+    public int maximumRadius() {
+        return 100_000;
+    }
+
+    @Override
+    public LocatorCachePolicy cachePolicy() {
+        return LocatorCachePolicy.PERSISTENT;
+    }
+
+    @Override
+    public LocatorThreadSafety threadSafety() {
+        return LocatorThreadSafety.SERVER_THREAD_ONLY;
+    }
+
+    @Override
+    public int estimatedSearchCost() {
+        return 20;
+    }
+
+    @Override
+    public Optional<LocatorResult> locate(ServerLevel level,
+                                          String targetId,
+                                          BlockPos origin,
+                                          int maxRadius,
+                                          LocateCancellationToken token) {
+        token.throwIfCancelled();
+        return MySavedIndex.nearest(level.dimension(), origin, maxRadius)
+                .map(position -> new LocatorResult(
+                        LocatorTargetType.CUSTOM,
+                        id(),
+                        level.dimension().location().toString(),
+                        position,
+                        "mymod:saved-index",
+                        "mymod-index",
+                        Instant.now(),
+                        true,
+                        true,
+                        Map.of("variant", "sky")));
+    }
+});
 ```
 
----
+Provider IDs must be stable, lowercase, namespaced IDs. Duplicate IDs are rejected.
 
-## 2) Register the provider during common setup
+### Contract
 
-During your mod setup, register the provider with Locate Fixer:
+- `supportedDimensions()` returns dimension IDs. An empty set means all dimensions.
+- `maximumRadius()` is enforced against the request radius.
+- `cachePolicy()` declares whether results are suitable for memory or persistent reuse.
+- `threadSafety()` defaults to `SERVER_THREAD_ONLY`. Choose `WORKER_SAFE` only when the provider does not touch `ServerLevel`, registries, chunks, SavedData, entities, or mutable mod state from the worker.
+- `estimatedSearchCost()` is a relative 0–100 planning hint.
+- `safelyTeleportable()` defaults to true. When false, Locate Unbound reports plain coordinates and does not emit a clickable preload-teleport link.
+- Check `LocateCancellationToken` during bounded loops. Cancellation is cooperative; do not interrupt a world call or retain the supplied level.
+- Return positions in the declared result dimension and within the supplied maximum radius. Locate Unbound rejects out-of-scope results.
+- Use `verified=false` or `generated=false` when the provider only predicts a location. Do not claim generation from placement metadata alone.
 
-```java
-import com.thunder.locatefixer.api.StructureLocatorRegistry;
+`/xlocate customstructure <id>` suggests unified `CUSTOM` and `STRUCTURE` providers as well as legacy providers.
 
-public final class MyMod {
-    public static void onCommonSetup() {
-        StructureLocatorRegistry.register(new SkyFortressLocator());
-    }
-}
-```
+## Backend API
 
-You can also register with a lambda:
+`LocatorBackend` sits below orchestration and above version-specific world operations. It publishes:
+
+- Stable backend ID and display name
+- Supported `LocatorTargetType` values
+- Priority and availability
+- Async support declaration
+- Estimated cost
+- A `locate` method receiving the request, `SearchPlan`, cancellation token, and a version-specific `LocatorSearchOperation`
+
+Registering external backends is intentionally not exposed as a global static call in 4.0.0. The registry exists as the internal selection boundary while its lifecycle and compatibility rules settle. Providers are the supported third-party extension point in this release.
+
+## Legacy custom structures
+
+The old API remains source compatible:
 
 ```java
 StructureLocatorRegistry.register("mymod:sky_fortress", (level, origin, maxRadius) ->
-        MyStructureIndex.findNearestSkyFortress(level.dimension(), origin, maxRadius));
+        MySavedIndex.nearest(level.dimension(), origin, maxRadius));
 ```
 
----
+`LocateFixerStructureProvider` is deprecated but not scheduled for removal. A namespaced legacy registration automatically receives a unified adapter that delegates to the newest legacy callback. Non-namespaced legacy IDs continue to work only through `StructureLocatorRegistry`.
 
-## 3) Using the command
+Legacy callbacks always run on the server thread. Keep them fast and bounded.
 
-Once registered, server operators can run:
+## Persistent index behavior
 
-```mcfunction
-/xlocate customstructure mymod:sky_fortress
-```
+Successful normal and provider searches are normalized to `LocatorResult` and written to Minecraft SavedData when indexing is enabled. Providers do not need to write `locatefixer_index.dat` directly. Mutable POI, feature, and custom results use the configured verification window before a provider search is required again.
 
-- Suggestions for known ids are provided in command autocomplete.
-- Registered custom ids use Locate Fixer's bounded request pipeline and anti-spam guard.
-- The provider callback itself runs on Minecraft's server thread because it receives a live `ServerLevel`.
-- If the id is not registered, Locate Fixer returns an error message.
-
----
-
-## Notes and best practices
-
-- Keep your locator method fast and bounded. A slow provider blocks the server thread while its callback is running.
-- It is safe for the callback to read ordinary server-owned world state; do not start another thread that accesses the supplied `ServerLevel`.
-- Respect `maxRadius` to avoid unexpectedly expensive searches.
-- Use stable ids (`namespace:path`) and keep them lowercase.
-- If your structure locations are pre-indexed, query that index first for best performance.
+The index is an implementation detail, not a storage API. Its schema may migrate between releases while preserving the `locatefixer_index.dat` file.

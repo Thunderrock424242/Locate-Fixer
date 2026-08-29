@@ -1,10 +1,12 @@
-# Locate Fixer
+# Locate Unbound
 
-Locate Fixer is a server-first quality-of-life mod for Forge, NeoForge, and Fabric. It makes Minecraft's `/locate`, `/locate biome`, and `/tp` workflows more reliable on large or heavily modded worlds by extending searches, reporting progress, caching results, and preparing safe teleports.
+![Locate Unbound logo](branding/locate-unbound-logo-128.png)
+
+Locate Unbound is a server-first world discovery engine for Forge, NeoForge, and Fabric. It keeps the established technical ID `locatefixer` so existing worlds, server configs, API consumers, and resource paths continue to work after the rename.
 
 ## Supported targets
 
-Each Minecraft version and loader has its own JAR. Install only the file matching the server's exact combination.
+Install only the JAR matching the server's exact Minecraft version and loader.
 
 | Minecraft | Loader | Java | Extra requirement |
 | --- | --- | --- | --- |
@@ -13,91 +15,91 @@ Each Minecraft version and loader has its own JAR. Install only the file matchin
 | 1.21.1 | NeoForge 21.1.219+ | 21 | None |
 | 1.21.1 | Fabric | 21 | Fabric API |
 
-WorldEdit is optional on every target. When present, Locate Fixer enables its schematic-folder integration.
+## Architecture
 
-## Highlights
-
-- **Escalating search radii.** Locate rings climb from 6,400 blocks up to 256,000 blocks by default, so far-away structures and modded biomes can be discovered.
-- **Bounded locate workers.** Commands are orchestrated in a bounded background pool while access to live chunks, POIs, and mod-owned world state is handed to the server thread.
-- **Smart caching.** Recently found structures and biomes can be reused for nearby requests instead of repeating the same search.
-- **Nearest X mode.** When enabled, `/locate nearest structure <count>` and `/locate nearest biome <count>` list multiple matches.
-- **Command error fixer.** Mistyped registry IDs in `/locate`, `/summon`, `/give`, and `/effect` receive clearer errors with clickable suggestions.
-- **Safer teleports.** Teleporting to a recent locate result preloads the destination chunks, shows a countdown, and moves the player after the destination is ready.
-- **Schematic helpers.** `/locate schematic <name>` discovers files in WorldEdit's `config/worldedit/schematics` folder.
-
-## Installation
-
-1. Choose the JAR matching the Minecraft version and loader in the table above.
-2. Install it in the server's `mods` directory. Install Fabric API as well on Fabric.
-3. Client installation is optional, but using the same mod set on both sides is recommended.
-4. Start the game or server once to generate `config/locatefixer-server.toml`.
-
-Do not install two Locate Fixer target JARs together.
-
-## Modded world-generation compatibility
-
-Locate Fixer resolves targets from the active world's registries and biome source instead of using a vanilla-only biome or structure list. Registry-based world-generation mods, including TerraBlender-based biome mods, therefore participate in normal `/locate structure` and `/locate biome` searches without a dedicated integration.
-
-Custom dimensions are supported when their chunk generator exposes its possible biomes and implements Minecraft's standard locate behavior. Structures placed outside Minecraft's structure registry can use Locate Fixer's custom provider API instead.
-
-## Configuration
-
-Locate Fixer uses `config/locatefixer-server.toml` on every supported loader. Important settings include:
-
-- `locate.locateRings` — ordered block radii used by escalating searches.
-- `locate.locateThreadCount` — async worker count from 1 to 8.
-- `locate.cacheDurationMinutes` — how long successful results stay cached.
-- `locate.cacheChunkGranularity` — how broadly nearby requests share cached results.
-- `locate.biomeSampleRadiusMultiplier` and `locate.biomeSampleStepMultiplier` — biome sampling controls.
-- `locate.enableFeatureLocateCommand` — enables `/locate feature <placed_feature_id>`; default `false`.
-- `enableNearestCommand` — enables the operator-only `/locate nearest` branch; default `false`.
-- `commands.enableCommandErrorFixer` — enables registry-aware suggestions; default `true`.
-- `poi.poiSearchRadius` — maximum point-of-interest search radius.
-
-Forge and NeoForge apply loader config reload events. Fabric rereads the same file after a successful `/reload`. See [CONFIGURATION.md](CONFIGURATION.md) for the complete guide.
-
-## Usage
-
-1. Run `/locate structure` or `/locate biome` normally. Progress messages show the active search radius.
-2. Enable `enableNearestCommand` to use `/locate nearest structure <count>` or `/locate nearest biome <count>` as an operator.
-3. Optionally enable `/locate feature <namespace:id>` through its config setting.
-4. Click a suggested correction after mistyping a supported biome, structure, entity, item, or effect ID.
-5. Use `/tp` immediately after a locate result to let Locate Fixer prepare the target area before teleporting.
-6. Put `.schem` files in `config/worldedit/schematics/` to discover them with `/locate schematic <name>`.
-
-## API integration
-
-Mods that place structures through custom systems can register a provider for `/xlocate customstructure <id>`. See [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for the interface and examples.
-
-## Building all targets
-
-The repository is one Gradle project with shared sources plus small loader- and version-specific source sets:
+Primary single-target discovery routes now follow the same ownership chain:
 
 ```text
-src/main/                    shared implementation
-src/versions/                Minecraft-version adapters
-src/platforms/               loader adapters and metadata
-targets/                     four build targets
+command or provider API
+  -> bounded LocateJob queue
+  -> memory cache
+  -> per-world persistent index
+  -> adaptive SearchPlan
+  -> selected LocatorBackend
+  -> normalized LocatorResult
+  -> cache and index update
 ```
 
-On Windows:
+Background workers own planning, cancellation, progress, and result bookkeeping. Live `ServerLevel`, chunk generator, biome, POI, SavedData, forced-chunk, and teleport operations are marshalled through Minecraft's server executor.
+
+### Discovery systems
+
+- **Backend registry.** `LocatorBackendRegistry` chooses the highest-priority available backend for structures, biomes, POIs, features, or custom targets. The built-in backend preserves Minecraft's standard world-generator methods, so lower-level optimizers can still influence them.
+- **Adaptive plans.** Configured rings remain the fallback. Successful and failed distance history lets later searches skip radii already known to be unhelpful while respecting the configured maximum.
+- **Persistent index.** Verified results are deduplicated in `world/data/locatefixer_index.dat`. The index is dimension-aware, versioned, bounded, expiration-aware, and tolerant of malformed entries.
+- **Memory cache.** Recent structure and biome results remain the fastest lookup layer.
+- **Unified providers.** Third-party providers declare type, dimension support, radius, cache policy, thread safety, estimated cost, and teleport suitability. The old custom-structure API remains available through a compatibility bridge.
+
+## Commands
+
+Normal Minecraft commands remain the primary interface:
+
+- `/locate structure ...`
+- `/locate biome ...`
+- `/locate poi ...`
+- `/locate status`
+- `/locate cancel`
+
+Additional commands:
+
+- `/locateunbound diagnostics` — operator report for backends, integrations, queue, caches, index, and radius.
+- `/locateunbound benchmark` — reports captured metrics for the operator's latest search when benchmarking is enabled.
+- `/locatefixer ...` — compatibility alias for Locate Unbound control commands.
+- `/xlocate customstructure <id>` — searches a registered generic or legacy custom provider.
+- `/locate nearest structure <count>` and `/locate nearest biome <count>` — optional operator commands.
+- `/locate feature <namespace:id>` — optional placed-feature search.
+- Existing dimension, schematic, and command-correction utilities remain registered.
+
+## Safe travel
+
+Clicking coordinates produced by a recent Locate Unbound result grants one short-lived preload teleport. Ordinary absolute `/tp` commands are no longer intercepted.
+
+The travel pipeline:
+
+- Adds bounded temporary tickets only around the destination.
+- Reports actual ready chunks rather than an estimated percentage.
+- Waits for readiness with a configurable timeout and countdown.
+- Rechecks the landing immediately before moving the player.
+- Rejects void, suffocation, lava, fire, campfire, powder-snow, unsupported, and falling-block floors by default.
+- Avoids treating the Nether roof as a normal surface.
+- Releases only tickets added by Locate Unbound after success, failure, cancellation, disconnect, exception, or server stop.
+
+Use `/locate cancel` to stop either the current search or countdown.
+
+## Optional-mod behavior
+
+- **BiomeSpy:** detected without a dependency. Locate Unbound deliberately continues through Minecraft's standard biome and structure methods, allowing BiomeSpy's lower-level mixins to optimize those calls. No BiomeSpy code or reflection hook is copied.
+- **Nature's Compass / Explorer's Compass:** detected and reported. Their existing worker managers remain owners of compass searches; Locate Unbound does not overwrite them with fragile optional mixins.
+- **Async Locator Refined:** conflict-safe mode yields vanilla `/locate` interception to the other mod when a recognized mod ID is detected, avoiding duplicate searches.
+- **WorldEdit:** the existing optional schematic integration remains.
+- **Registry and TerraBlender world generation:** active registries and biome sources remain authoritative.
+
+Cartographer maps, dolphins, and third-party exploration items are not mixin-rerouted in this release because no stable cross-loader hook exists. The generic provider/backend API is the supported integration seam for those systems.
+
+The optional nearest-X commands are aggregate sampling tools. They use the shared bounded job owner, cancellation, metrics, server-thread marshalling, and index writes, while coordinating multiple vanilla candidates above the single-result backend boundary.
+
+## Configuration and API
+
+The config filename stays `config/locatefixer-server.toml` for compatibility. See [CONFIGURATION.md](CONFIGURATION.md) for all categories and [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for provider examples and the legacy bridge.
+
+## Building
+
+On Windows with JDK 21 available:
 
 ```powershell
 .\gradlew.bat collectArtifacts --no-daemon
 ```
 
-On Linux or macOS:
+Production JARs are collected in `build/distributions/`; `-sources.jar` files are development sources and are not installable mod artifacts.
 
-```bash
-./gradlew collectArtifacts --no-daemon
-```
-
-The four production JARs are collected in `build/distributions/`. Individual targets can be built with tasks such as `:forge-1.20.1:build` or `:fabric-1.21.1:build`.
-
-For an opt-in NeoForge 1.21.1 development check with TerraBlender and Biomes O' Plenty on the runtime classpath, use:
-
-```powershell
-.\gradlew.bat :neoforge-1.21.1:runServer -PterrablenderTest --no-daemon
-```
-
-The profile is test-only; TerraBlender and Biomes O' Plenty are not bundled or required by Locate Fixer.
+This repository uses shared sources plus loader and Minecraft-version adapters under `src/platforms/` and `src/versions/`.

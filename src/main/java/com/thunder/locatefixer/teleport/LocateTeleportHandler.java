@@ -1,44 +1,49 @@
 package com.thunder.locatefixer.teleport;
 
+import com.thunder.locatefixer.config.LocateFixerConfig;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+/** Server-thread-owned safe travel with bounded temporary chunk tickets. */
 public final class LocateTeleportHandler {
-
-    private static final int COUNTDOWN_SECONDS = 5;
-    private static final int PRELOAD_RADIUS_CHUNKS = 2;
     private static final int SAFE_AREA_RADIUS = 0;
     private static final int SAFE_AREA_HEIGHT = 2;
-    private static final int SAFE_SEARCH_UP = 24;
-    private static final int SAFE_SEARCH_DOWN = 12;
-    private static final int SAFE_SEARCH_HORIZONTAL = 4;
     private static final int POCKET_RADIUS = 1;
     private static final int POCKET_HEIGHT = 3;
-    private static final ScheduledExecutorService PRELOAD_EXECUTOR = Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
+    private static final long AUTHORIZATION_LIFETIME_MS = TimeUnit.MINUTES.toMillis(10);
+
+    private static final ScheduledExecutorService PRELOAD_EXECUTOR =
+            Executors.newSingleThreadScheduledExecutor(buildThreadFactory());
     private static final Set<CountdownTask> ACTIVE_COUNTDOWNS = ConcurrentHashMap.newKeySet();
+    private static final Map<UUID, CountdownTask> ACTIVE_BY_PLAYER = new ConcurrentHashMap<>();
+    private static final Map<UUID, TeleportAuthorization> AUTHORIZATIONS = new ConcurrentHashMap<>();
+
     private LocateTeleportHandler() {
     }
 
@@ -47,29 +52,62 @@ public final class LocateTeleportHandler {
                 + target.getX() + " " + target.getY() + " " + target.getZ();
     }
 
+    /** Marks coordinates emitted by Locate Unbound as eligible for one preload teleport. */
+    public static void authorize(ServerPlayer player, ServerLevel level, BlockPos target) {
+        AUTHORIZATIONS.put(player.getUUID(), new TeleportAuthorization(
+                level.dimension().location().toString(), target.immutable(),
+                System.currentTimeMillis() + AUTHORIZATION_LIFETIME_MS));
+    }
+
+    /** A mismatched or expired grant leaves an ordinary vanilla /tp completely untouched. */
+    public static boolean consumeAuthorization(ServerPlayer player, ServerLevel level, BlockPos target) {
+        TeleportAuthorization authorization = AUTHORIZATIONS.get(player.getUUID());
+        if (authorization == null) {
+            return false;
+        }
+        if (authorization.expiresAtMs() < System.currentTimeMillis()) {
+            AUTHORIZATIONS.remove(player.getUUID(), authorization);
+            return false;
+        }
+        if (!authorization.dimensionId().equals(level.dimension().location().toString())
+                || !authorization.position().equals(target)) {
+            return false;
+        }
+        return AUTHORIZATIONS.remove(player.getUUID(), authorization);
+    }
+
+    public static boolean cancelFor(ServerPlayer player) {
+        CountdownTask task = ACTIVE_BY_PLAYER.get(player.getUUID());
+        if (task == null) {
+            return false;
+        }
+        task.cancelAndRelease("Teleport cancelled.");
+        return true;
+    }
+
     public static void startTeleportWithPreload(ServerPlayer player,
                                                 ServerLevel level,
                                                 BlockPos targetPos,
                                                 Consumer<BlockPos> teleportAction) {
-        List<ChunkPos> forcedChunks = forceChunks(level, targetPos);
-        ChunkPos targetChunk = new ChunkPos(targetPos);
-        player.sendSystemMessage(Component.literal("📦 Preloading destination chunks around "
-                + "[" + targetChunk.x + ", " + targetChunk.z + "]"
-                + " (radius " + PRELOAD_RADIUS_CHUNKS + ", " + forcedChunks.size() + " newly forced)."));
-        sendActionBar(player, Component.literal("📦 Chunk preload: warming up destination..."));
-
-        LandingPlan landingPlan = findLandingPlan(level, targetPos);
-        BlockPos safePos = landingPlan.position();
-        int offsetX = safePos.getX() - targetPos.getX();
-        int offsetY = safePos.getY() - targetPos.getY();
-        int offsetZ = safePos.getZ() - targetPos.getZ();
-        player.sendSystemMessage(Component.literal("🛰 Teleport safety scan complete: "
-                + safePos.getX() + " " + safePos.getY() + " " + safePos.getZ()
-                + " (offset Δ" + offsetX + ", Δ" + offsetY + ", Δ" + offsetZ + ")."));
-        if (landingPlan.carvePocket()) {
-            player.sendSystemMessage(Component.literal("⛏ An underground safety pocket will be prepared at the destination."));
+        CountdownTask previous = ACTIVE_BY_PLAYER.get(player.getUUID());
+        if (previous != null) {
+            previous.cancelAndRelease("Previous locate teleport cancelled.");
         }
-        scheduleCountdown(level, player, forcedChunks, targetPos, safePos, teleportAction);
+
+        ChunkPreload preload = forceChunks(level, targetPos);
+        ChunkPos targetChunk = new ChunkPos(targetPos);
+        int preloadRadius = LocateFixerConfig.SERVER.teleportPreloadRadiusChunks.get();
+        player.sendSystemMessage(Component.literal("Preloading destination chunks around ["
+                + targetChunk.x + ", " + targetChunk.z + "] (radius " + preloadRadius
+                + ", " + preload.addedTickets().size() + " newly forced)."));
+        sendActionBar(player, Component.literal("Chunk preload: warming up destination..."));
+
+        try {
+            scheduleCountdown(level, player, preload, targetPos, teleportAction);
+        } catch (RuntimeException failure) {
+            releaseChunks(level, preload.addedTickets());
+            throw failure;
+        }
     }
 
     public static BlockPos findSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
@@ -77,43 +115,28 @@ public final class LocateTeleportHandler {
     }
 
     public static BlockPos findSurfaceSafeTeleportPosition(ServerLevel level, BlockPos targetPos) {
-        return findSurfaceSafePosition(level, targetPos);
+        BlockPos surface = findSurfaceSafePosition(level, targetPos);
+        return surface == null ? targetPos : surface;
     }
 
-    /**
-     * OPTIMIZED: Uses downward ray-tracing to find the true surface,
-     * ensuring players don't spawn inside decorations or transparent blocks.
-     */
     private static BlockPos findSurfaceSafePosition(ServerLevel level, BlockPos targetPos) {
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos(
-                targetPos.getX(), level.getMaxBuildHeight() - 1, targetPos.getZ());
-
-        while (cursor.getY() > level.getMinBuildHeight()) {
-            BlockState state = level.getBlockState(cursor);
-
-            // If we hit a solid block that isn't air, liquid, or leaves
-            if (!state.isAir() && state.getFluidState().isEmpty() && !state.is(net.minecraft.tags.BlockTags.LEAVES)) {
-                BlockPos ground = cursor.above().immutable();
-                if (isSafePosition(level, ground)) {
-                    return ground;
-                }
-            }
-            cursor.move(net.minecraft.core.Direction.DOWN);
+        if (level.dimension().equals(Level.NETHER) || level.dimensionType().hasCeiling()) {
+            return null;
         }
-
-        return targetPos; // Fallback to original position if no surface found
+        int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                targetPos.getX(), targetPos.getZ());
+        BlockPos candidate = new BlockPos(targetPos.getX(), y, targetPos.getZ());
+        return isSafePosition(level, candidate) ? candidate : null;
     }
 
     private static BlockPos findPreferredSurfacePosition(ServerLevel level, BlockPos targetPos) {
-        for (int radius = 0; radius <= SAFE_SEARCH_HORIZONTAL; radius++) {
+        int horizontalRadius = LocateFixerConfig.SERVER.safeHorizontalRadius.get();
+        for (int radius = 0; radius <= horizontalRadius; radius++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
-                    BlockPos columnTarget = targetPos.offset(dx, 0, dz);
-                    BlockPos surface = findSurfaceSafePosition(level, columnTarget);
-                    if (surface != null && !surface.equals(columnTarget) && isSafePosition(level, surface)) {
-                        return surface;
-                    }
+                    BlockPos surface = findSurfaceSafePosition(level, targetPos.offset(dx, 0, dz));
+                    if (surface != null) return surface;
                 }
             }
         }
@@ -123,12 +146,13 @@ public final class LocateTeleportHandler {
     private static BlockPos findNearbySafePosition(ServerLevel level, BlockPos targetPos) {
         BlockPos best = null;
         long bestDistanceSq = Long.MAX_VALUE;
-        int minY = Math.max(level.getMinBuildHeight() + 1, targetPos.getY() - SAFE_SEARCH_DOWN);
-        int maxY = Math.min(level.getMaxBuildHeight() - SAFE_AREA_HEIGHT, targetPos.getY() + SAFE_SEARCH_UP);
-
+        int verticalRange = LocateFixerConfig.SERVER.safeVerticalRange.get();
+        int horizontalRadius = LocateFixerConfig.SERVER.safeHorizontalRadius.get();
+        int minY = Math.max(level.getMinBuildHeight() + 1, targetPos.getY() - verticalRange);
+        int maxY = Math.min(level.getMaxBuildHeight() - SAFE_AREA_HEIGHT, targetPos.getY() + verticalRange);
         for (int y = minY; y <= maxY; y++) {
-            for (int dx = -SAFE_SEARCH_HORIZONTAL; dx <= SAFE_SEARCH_HORIZONTAL; dx++) {
-                for (int dz = -SAFE_SEARCH_HORIZONTAL; dz <= SAFE_SEARCH_HORIZONTAL; dz++) {
+            for (int dx = -horizontalRadius; dx <= horizontalRadius; dx++) {
+                for (int dz = -horizontalRadius; dz <= horizontalRadius; dz++) {
                     BlockPos candidate = new BlockPos(targetPos.getX() + dx, y, targetPos.getZ() + dz);
                     long distanceSq = distanceSq(targetPos, candidate);
                     if (distanceSq < bestDistanceSq && isSafePosition(level, candidate)) {
@@ -138,23 +162,14 @@ public final class LocateTeleportHandler {
                 }
             }
         }
-
         return best;
     }
 
     private static LandingPlan findLandingPlan(ServerLevel level, BlockPos targetPos) {
-        // Prefer putting the player on top of the located biome or structure.
-        // The surface search keeps the requested X/Z first and only expands a few
-        // blocks when that column has no safe landing.
         BlockPos surface = findPreferredSurfacePosition(level, targetPos);
-        if (surface != null) {
-            return new LandingPlan(surface, false);
-        }
+        if (surface != null) return new LandingPlan(surface, false);
 
-        // Some dimensions and enclosed structures have no usable surface nearby.
-        // In that case, keep the fallback as close to the locate coordinate as possible.
         BlockPos nearbySafe = findNearbySafePosition(level, targetPos);
-
         if (isUnderground(level, targetPos)) {
             BlockPos pocketAnchor = findNearestPocketAnchor(level, targetPos);
             if (pocketAnchor != null && (nearbySafe == null
@@ -162,31 +177,22 @@ public final class LocateTeleportHandler {
                 return new LandingPlan(pocketAnchor, true);
             }
         }
-
-        if (nearbySafe != null) {
-            return new LandingPlan(nearbySafe, false);
-        }
-
-        return new LandingPlan(targetPos, false);
+        if (nearbySafe != null) return new LandingPlan(nearbySafe, false);
+        throw new IllegalStateException("No safe landing position exists near the destination.");
     }
 
     private static BlockPos prepareLandingPosition(ServerLevel level, BlockPos targetPos) {
         LandingPlan finalPlan = findLandingPlan(level, targetPos);
         BlockPos finalPos = finalPlan.position();
-
         if (finalPlan.carvePocket() && !carveSafetyPocket(level, finalPos)) {
-            // Re-scan in case the destination changed during the preload countdown.
             BlockPos naturalFallback = findNearbySafePosition(level, targetPos);
             if (naturalFallback != null) {
                 finalPos = naturalFallback;
             } else {
                 BlockPos surfaceFallback = findPreferredSurfacePosition(level, targetPos);
-                if (surfaceFallback != null) {
-                    finalPos = surfaceFallback;
-                }
+                if (surfaceFallback != null) finalPos = surfaceFallback;
             }
         }
-
         if (!isSafePosition(level, finalPos)) {
             throw new IllegalStateException("No safe landing position could be prepared near the destination.");
         }
@@ -194,6 +200,7 @@ public final class LocateTeleportHandler {
     }
 
     private static boolean isUnderground(ServerLevel level, BlockPos targetPos) {
+        if (level.dimension().equals(Level.NETHER) || level.dimensionType().hasCeiling()) return true;
         int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                 targetPos.getX(), targetPos.getZ());
         return targetPos.getY() + SAFE_AREA_HEIGHT < surfaceY;
@@ -202,12 +209,13 @@ public final class LocateTeleportHandler {
     private static BlockPos findNearestPocketAnchor(ServerLevel level, BlockPos targetPos) {
         BlockPos best = null;
         long bestDistanceSq = Long.MAX_VALUE;
-        int minY = Math.max(level.getMinBuildHeight() + 1, targetPos.getY() - SAFE_SEARCH_DOWN);
-        int maxY = Math.min(level.getMaxBuildHeight() - POCKET_HEIGHT, targetPos.getY() + SAFE_SEARCH_UP);
-
+        int verticalRange = LocateFixerConfig.SERVER.safeVerticalRange.get();
+        int horizontalRadius = LocateFixerConfig.SERVER.safeHorizontalRadius.get();
+        int minY = Math.max(level.getMinBuildHeight() + 1, targetPos.getY() - verticalRange);
+        int maxY = Math.min(level.getMaxBuildHeight() - POCKET_HEIGHT, targetPos.getY() + verticalRange);
         for (int y = minY; y <= maxY; y++) {
-            for (int dx = -SAFE_SEARCH_HORIZONTAL; dx <= SAFE_SEARCH_HORIZONTAL; dx++) {
-                for (int dz = -SAFE_SEARCH_HORIZONTAL; dz <= SAFE_SEARCH_HORIZONTAL; dz++) {
+            for (int dx = -horizontalRadius; dx <= horizontalRadius; dx++) {
+                for (int dz = -horizontalRadius; dz <= horizontalRadius; dz++) {
                     BlockPos candidate = new BlockPos(targetPos.getX() + dx, y, targetPos.getZ() + dz);
                     long distanceSq = distanceSq(targetPos, candidate);
                     if (distanceSq < bestDistanceSq && canCarveSafetyPocket(level, candidate)) {
@@ -217,26 +225,22 @@ public final class LocateTeleportHandler {
                 }
             }
         }
-
         return best;
     }
 
     private static boolean canCarveSafetyPocket(ServerLevel level, BlockPos anchor) {
         BlockPos floorPos = anchor.below();
         BlockState floor = level.getBlockState(floorPos);
-        if (!floor.isFaceSturdy(level, floorPos, net.minecraft.core.Direction.UP)
-                || !floor.getFluidState().isEmpty()) {
+        if (!floor.isFaceSturdy(level, floorPos, net.minecraft.core.Direction.UP) || !isAllowedFloor(floor)) {
             return false;
         }
-
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int dx = -POCKET_RADIUS; dx <= POCKET_RADIUS; dx++) {
             for (int dz = -POCKET_RADIUS; dz <= POCKET_RADIUS; dz++) {
                 for (int dy = 0; dy < POCKET_HEIGHT; dy++) {
                     cursor.set(anchor.getX() + dx, anchor.getY() + dy, anchor.getZ() + dz);
                     BlockState state = level.getBlockState(cursor);
-                    if (!state.getFluidState().isEmpty()
-                            || level.getBlockEntity(cursor) != null
+                    if (!state.getFluidState().isEmpty() || level.getBlockEntity(cursor) != null
                             || (!state.isAir() && state.getDestroySpeed(level, cursor) < 0.0F)) {
                         return false;
                     }
@@ -247,18 +251,13 @@ public final class LocateTeleportHandler {
     }
 
     private static boolean carveSafetyPocket(ServerLevel level, BlockPos anchor) {
-        if (!canCarveSafetyPocket(level, anchor)) {
-            return false;
-        }
-
+        if (!canCarveSafetyPocket(level, anchor)) return false;
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int dx = -POCKET_RADIUS; dx <= POCKET_RADIUS; dx++) {
             for (int dz = -POCKET_RADIUS; dz <= POCKET_RADIUS; dz++) {
                 for (int dy = 0; dy < POCKET_HEIGHT; dy++) {
                     cursor.set(anchor.getX() + dx, anchor.getY() + dy, anchor.getZ() + dz);
-                    if (!level.isEmptyBlock(cursor)) {
-                        level.setBlock(cursor, Blocks.AIR.defaultBlockState(), 3);
-                    }
+                    if (!level.isEmptyBlock(cursor)) level.setBlock(cursor, Blocks.AIR.defaultBlockState(), 3);
                 }
             }
         }
@@ -272,131 +271,144 @@ public final class LocateTeleportHandler {
         return dx * dx + dy * dy + dz * dz;
     }
 
-    private static void scheduleCountdown(ServerLevel level,
-                                          ServerPlayer player,
-                                          List<ChunkPos> forcedChunks,
-                                          BlockPos targetPos,
-                                          BlockPos safePos,
-                                          Consumer<BlockPos> teleportAction) {
-        CountdownTask task = new CountdownTask(level, player, forcedChunks, targetPos, safePos, teleportAction);
+    private static void scheduleCountdown(ServerLevel level, ServerPlayer player, ChunkPreload preload,
+                                          BlockPos targetPos, Consumer<BlockPos> teleportAction) {
+        CountdownTask task = new CountdownTask(level, player, preload, targetPos, teleportAction);
         ACTIVE_COUNTDOWNS.add(task);
+        ACTIVE_BY_PLAYER.put(player.getUUID(), task);
         try {
             ScheduledFuture<?> future = PRELOAD_EXECUTOR.scheduleAtFixedRate(task, 0L, 1L, TimeUnit.SECONDS);
             task.attachFuture(future);
-        } catch (RuntimeException schedulingFailure) {
+        } catch (RuntimeException failure) {
             ACTIVE_COUNTDOWNS.remove(task);
-            releaseChunks(level, forcedChunks);
-            throw schedulingFailure;
+            ACTIVE_BY_PLAYER.remove(player.getUUID(), task);
+            releaseChunks(level, preload.addedTickets());
+            throw failure;
         }
     }
 
-    private static List<ChunkPos> forceChunks(ServerLevel level, BlockPos center) {
-        List<ChunkPos> forced = new ArrayList<>();
+    private static ChunkPreload forceChunks(ServerLevel level, BlockPos center) {
+        List<ChunkPos> requested = new ArrayList<>();
+        List<ChunkPos> added = new ArrayList<>();
         ChunkPos centerChunk = new ChunkPos(center);
-        for (int dx = -PRELOAD_RADIUS_CHUNKS; dx <= PRELOAD_RADIUS_CHUNKS; dx++) {
-            for (int dz = -PRELOAD_RADIUS_CHUNKS; dz <= PRELOAD_RADIUS_CHUNKS; dz++) {
+        int radius = LocateFixerConfig.SERVER.teleportPreloadRadiusChunks.get();
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
                 ChunkPos chunkPos = new ChunkPos(centerChunk.x + dx, centerChunk.z + dz);
-                // Only release tickets that Locate Fixer actually added. Chunks that were
-                // already force-loaded may belong to an admin or another mod.
-                if (level.setChunkForced(chunkPos.x, chunkPos.z, true)) {
-                    forced.add(chunkPos);
-                }
+                requested.add(chunkPos);
+                if (level.setChunkForced(chunkPos.x, chunkPos.z, true)) added.add(chunkPos);
             }
         }
-        return forced;
+        return new ChunkPreload(List.copyOf(requested), List.copyOf(added));
     }
 
-    private static void releaseChunks(ServerLevel level, List<ChunkPos> forcedChunks) {
-        for (ChunkPos chunkPos : forcedChunks) {
-            level.setChunkForced(chunkPos.x, chunkPos.z, false);
-        }
+    private static void releaseChunks(ServerLevel level, List<ChunkPos> chunks) {
+        for (ChunkPos chunkPos : chunks) level.setChunkForced(chunkPos.x, chunkPos.z, false);
     }
 
-    /**
-     * Cancels countdowns before their ServerLevel is torn down. Called from the
-     * server-stopping event, which already runs on the owning server thread.
-     */
     public static void shutdownForServerStop(MinecraftServer server) {
         for (CountdownTask task : List.copyOf(ACTIVE_COUNTDOWNS)) {
             if (task.level.getServer() == server) {
                 task.cancelAndRelease("Teleport cancelled because the server is stopping.");
             }
         }
+        AUTHORIZATIONS.clear();
     }
 
     private static ThreadFactory buildThreadFactory() {
         AtomicInteger counter = new AtomicInteger();
         return runnable -> {
-            Thread thread = new Thread(runnable);
-            thread.setName("LocateFixer-Preload-" + counter.incrementAndGet());
+            Thread thread = new Thread(runnable, "LocateUnbound-Preload-" + counter.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         };
     }
 
     private static boolean isSafePosition(ServerLevel level, BlockPos pos) {
-        int minY = level.getMinBuildHeight();
-        int maxY = level.getMaxBuildHeight() - SAFE_AREA_HEIGHT;
-        if (pos.getY() <= minY || pos.getY() > maxY) return false;
-
+        if (pos.getY() <= level.getMinBuildHeight()
+                || pos.getY() > level.getMaxBuildHeight() - SAFE_AREA_HEIGHT) return false;
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-
         cursor.set(pos.getX(), pos.getY() - 1, pos.getZ());
-        BlockState belowState = level.getBlockState(cursor);
-        if (!belowState.isFaceSturdy(level, cursor, net.minecraft.core.Direction.UP)) return false;
-        if (belowState.getFluidState().is(net.minecraft.tags.FluidTags.LAVA)) return false;
-
+        BlockState floor = level.getBlockState(cursor);
+        if (!floor.isFaceSturdy(level, cursor, net.minecraft.core.Direction.UP) || !isAllowedFloor(floor)) {
+            return false;
+        }
         for (int dx = -SAFE_AREA_RADIUS; dx <= SAFE_AREA_RADIUS; dx++) {
             for (int dz = -SAFE_AREA_RADIUS; dz <= SAFE_AREA_RADIUS; dz++) {
                 for (int dy = 0; dy < SAFE_AREA_HEIGHT; dy++) {
                     cursor.set(pos.getX() + dx, pos.getY() + dy, pos.getZ() + dz);
-                    if (!level.isEmptyBlock(cursor)) return false;
+                    if (!isAllowedBodySpace(level.getBlockState(cursor))) return false;
                 }
             }
         }
         return true;
     }
 
-    private record LandingPlan(BlockPos position, boolean carvePocket) {
+    private static boolean isAllowedFloor(BlockState state) {
+        if (state.getFluidState().is(net.minecraft.tags.FluidTags.LAVA)
+                && !LocateFixerConfig.SERVER.allowLavaLanding.get()) return false;
+        if (state.getFluidState().is(net.minecraft.tags.FluidTags.WATER)
+                && !LocateFixerConfig.SERVER.allowWaterLanding.get()) return false;
+        if ((state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE)
+                || state.is(Blocks.CAMPFIRE) || state.is(Blocks.SOUL_CAMPFIRE))
+                && !LocateFixerConfig.SERVER.allowFireLanding.get()) return false;
+        if (state.is(Blocks.POWDER_SNOW)
+                && !LocateFixerConfig.SERVER.allowPowderSnowLanding.get()) return false;
+        return !(state.getBlock() instanceof FallingBlock);
     }
+
+    private static boolean isAllowedBodySpace(BlockState state) {
+        if (state.isAir()) return true;
+        if (state.getFluidState().is(net.minecraft.tags.FluidTags.WATER)) {
+            return LocateFixerConfig.SERVER.allowWaterLanding.get();
+        }
+        if (state.getFluidState().is(net.minecraft.tags.FluidTags.LAVA)) {
+            return LocateFixerConfig.SERVER.allowLavaLanding.get();
+        }
+        if ((state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE)
+                || state.is(Blocks.CAMPFIRE) || state.is(Blocks.SOUL_CAMPFIRE))
+                && LocateFixerConfig.SERVER.allowFireLanding.get()) return true;
+        return state.is(Blocks.POWDER_SNOW) && LocateFixerConfig.SERVER.allowPowderSnowLanding.get();
+    }
+
+    private static void sendActionBar(ServerPlayer player, Component message) {
+        player.displayClientMessage(message, true);
+    }
+
+    private record LandingPlan(BlockPos position, boolean carvePocket) {}
+    private record ChunkPreload(List<ChunkPos> requestedChunks, List<ChunkPos> addedTickets) {}
+    private record TeleportAuthorization(String dimensionId, BlockPos position, long expiresAtMs) {}
 
     private static final class CountdownTask implements Runnable {
         private final ServerLevel level;
         private final ServerPlayer player;
-        private final List<ChunkPos> forcedChunks;
+        private final ChunkPreload preload;
         private final BlockPos targetPos;
-        private final BlockPos safePos;
         private final Consumer<BlockPos> teleportAction;
-        private int secondsLeft;
+        private final long deadlineNanos;
         private final AtomicReference<ScheduledFuture<?>> futureRef = new AtomicReference<>();
         private final AtomicBoolean tickQueued = new AtomicBoolean();
+        private int secondsLeft;
         private boolean finished;
 
-        private CountdownTask(ServerLevel level,
-                              ServerPlayer player,
-                              List<ChunkPos> forcedChunks,
-                              BlockPos targetPos,
-                              BlockPos safePos,
-                              Consumer<BlockPos> teleportAction) {
+        private CountdownTask(ServerLevel level, ServerPlayer player, ChunkPreload preload,
+                              BlockPos targetPos, Consumer<BlockPos> teleportAction) {
             this.level = level;
             this.player = player;
-            this.forcedChunks = forcedChunks;
+            this.preload = preload;
             this.targetPos = targetPos;
-            this.safePos = safePos;
             this.teleportAction = teleportAction;
-            this.secondsLeft = COUNTDOWN_SECONDS;
+            this.secondsLeft = LocateFixerConfig.SERVER.teleportCountdownEnabled.get()
+                    ? LocateFixerConfig.SERVER.teleportCountdownSeconds.get() : 0;
+            this.deadlineNanos = System.nanoTime()
+                    + TimeUnit.SECONDS.toNanos(LocateFixerConfig.SERVER.teleportTimeoutSeconds.get());
         }
 
-        private void attachFuture(ScheduledFuture<?> future) {
-            futureRef.set(future);
-        }
+        private void attachFuture(ScheduledFuture<?> future) { futureRef.set(future); }
 
         @Override
         public void run() {
-            if (!tickQueued.compareAndSet(false, true)) {
-                return;
-            }
-
+            if (!tickQueued.compareAndSet(false, true)) return;
             try {
                 level.getServer().execute(() -> {
                     try {
@@ -412,66 +424,72 @@ public final class LocateTeleportHandler {
         }
 
         private void tickOnServer() {
-            if (finished) {
-                return;
-            }
-
+            if (finished) return;
             if (player.isRemoved()) {
                 cancelAndRelease("Teleport cancelled.");
                 return;
             }
-
-            if (secondsLeft > 0) {
-                int displaySeconds = secondsLeft--;
-                int elapsed = COUNTDOWN_SECONDS - displaySeconds;
-                int forcedEstimate = forcedChunks.isEmpty()
-                        ? 0
-                        : Math.max(1, (int) Math.round((elapsed / (double) COUNTDOWN_SECONDS) * forcedChunks.size()));
-                int percent = Math.max(0, Math.min(100, (int) Math.round((elapsed * 100.0D) / COUNTDOWN_SECONDS)));
-                player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds
-                        + "... [preload " + forcedEstimate + "/" + forcedChunks.size() + ", "
-                        + percent + "% | target " + safePos.getX() + " " + safePos.getY() + " " + safePos.getZ() + "]"));
+            if (System.nanoTime() >= deadlineNanos) {
+                cancelAndRelease("Teleport cancelled because destination chunks did not become ready in time.");
                 return;
             }
-
+            int ready = readyChunkCount();
+            int total = preload.requestedChunks().size();
+            if (secondsLeft > 0) {
+                int displaySeconds = secondsLeft--;
+                int percent = total == 0 ? 100 : ready * 100 / total;
+                player.sendSystemMessage(Component.literal("Teleporting in " + displaySeconds
+                        + "... [preload " + ready + "/" + total + ", " + percent + "% | target "
+                        + targetPos.getX() + " " + targetPos.getY() + " " + targetPos.getZ() + "]"));
+                return;
+            }
+            if (ready < total) {
+                sendActionBar(player, Component.literal("Waiting for destination chunks..."));
+                return;
+            }
             try {
-                if (!player.isRemoved()) {
-                    BlockPos finalSafePos = prepareLandingPosition(level, targetPos);
-                    sendActionBar(player, Component.literal("✅ Destination ready."));
-                    teleportAction.accept(finalSafePos);
-                }
-            } catch (Exception e) {
-                if (!player.isRemoved()) player.sendSystemMessage(Component.literal("Teleport failed: " + e.getMessage()));
+                BlockPos finalSafePos = prepareLandingPosition(level, targetPos);
+                int offsetX = finalSafePos.getX() - targetPos.getX();
+                int offsetY = finalSafePos.getY() - targetPos.getY();
+                int offsetZ = finalSafePos.getZ() - targetPos.getZ();
+                player.sendSystemMessage(Component.literal("Teleport safety scan: "
+                        + finalSafePos.getX() + " " + finalSafePos.getY() + " " + finalSafePos.getZ()
+                        + " (offset " + offsetX + ", " + offsetY + ", " + offsetZ + ")."));
+                sendActionBar(player, Component.literal("Destination ready."));
+                teleportAction.accept(finalSafePos);
+            } catch (Exception failure) {
+                player.sendSystemMessage(Component.literal("Teleport failed: " + failure.getMessage()));
             } finally {
                 finishAndRelease();
             }
         }
 
-        private void cancelAndRelease(String message) {
-            if (finished) {
-                return;
+        private int readyChunkCount() {
+            int ready = 0;
+            for (ChunkPos chunkPos : preload.requestedChunks()) {
+                if (level.hasChunk(chunkPos.x, chunkPos.z)) ready++;
             }
+            return ready;
+        }
+
+        private void cancelAndRelease(String message) {
+            if (finished) return;
             if (!player.isRemoved()) player.sendSystemMessage(Component.literal(message));
             finishAndRelease();
         }
 
         private void finishAndRelease() {
-            if (finished) {
-                return;
-            }
+            if (finished) return;
             finished = true;
-            releaseChunks(level, forcedChunks);
+            releaseChunks(level, preload.addedTickets());
             cancelFuture();
             ACTIVE_COUNTDOWNS.remove(this);
+            ACTIVE_BY_PLAYER.remove(player.getUUID(), this);
         }
 
         private void cancelFuture() {
-            ScheduledFuture<?> f = futureRef.get();
-            if (f != null && !f.isCancelled()) f.cancel(false);
+            ScheduledFuture<?> future = futureRef.get();
+            if (future != null && !future.isCancelled()) future.cancel(false);
         }
-    }
-
-    private static void sendActionBar(ServerPlayer player, Component message) {
-        player.displayClientMessage(message, true);
     }
 }

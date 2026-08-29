@@ -1,7 +1,20 @@
 package com.thunder.locatefixer.util;
 
 import com.mojang.datafixers.util.Pair;
+import com.thunder.locatefixer.LocateRuntime;
+import com.thunder.locatefixer.api.LocatorRequest;
+import com.thunder.locatefixer.api.LocatorResult;
+import com.thunder.locatefixer.api.LocatorTargetType;
+import com.thunder.locatefixer.api.LocatorProvider;
+import com.thunder.locatefixer.api.LocatorProviderRegistry;
+import com.thunder.locatefixer.api.LocatorThreadSafety;
 import com.thunder.locatefixer.api.StructureLocatorRegistry;
+import com.thunder.locatefixer.backend.LocatorBackend;
+import com.thunder.locatefixer.job.LocateJob;
+import com.thunder.locatefixer.job.LocateJobManager;
+import com.thunder.locatefixer.index.WorldLocatorIndex;
+import com.thunder.locatefixer.search.SearchPlan;
+import com.thunder.locatefixer.search.SearchStage;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.ResourceOrTagArgument;
 import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;
@@ -20,16 +33,17 @@ import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 
 import java.util.*;
+import java.time.Instant;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.thunder.locatefixer.LocateFixerMod.LOGGER;
 
 public class AsyncLocateHandler {
 
     private static final int[] DEFAULT_RINGS = {6400, 16000, 32000, 64000, 128000, 256000};
-    private static final int CACHE_MAX_ENTRIES = 512;
     private static final int STRUCTURE_START_SCAN_RADIUS_CHUNKS = 1;
 
     // Pre-computed unit-circle samples for createAnchors — avoids repeated sin/cos per call.
@@ -64,10 +78,6 @@ public class AsyncLocateHandler {
     private static final ConcurrentMap<LocateCacheKey, LocateCacheEntry<Biome>> BIOME_CACHE = new ConcurrentHashMap<>();
     private static final AtomicLong CACHE_EPOCH = new AtomicLong();
 
-    // Tracks players with an in-flight locate request so they can't spam the executor.
-    // Uses the player name (String) to avoid holding a reference to the player object.
-    private static final Set<String> IN_FLIGHT_PLAYERS = ConcurrentHashMap.newKeySet();
-
     // ---------------------------------------------------------------------------
     // Public API
     // ---------------------------------------------------------------------------
@@ -77,19 +87,16 @@ public class AsyncLocateHandler {
             try {
                 task.run();
             } catch (Exception e) {
-                LOGGER.error("[LocateFixer] Async task '{}' failed", taskName, e);
+                LOGGER.error("[LocateUnbound] Async task '{}' failed", taskName, e);
             }
         }, executor());
     }
 
     public static void locateStructureAsync(CommandSourceStack source, ResourceOrTagKeyArgument.Result<Structure> structure, BlockPos origin, ServerLevel level) {
-        String playerKey = playerKey(source);
-        if (!acquireInFlight(source, playerKey)) return;
-
         final LocateSettings settings = SETTINGS;
-        CompletableFuture.runAsync(() -> {
+        submitLocateJob(source, LocatorTargetType.STRUCTURE, structure.asPrintable(), origin, level, settings, job -> {
             try {
-                int[] rings = settings.rings();
+                int[] rings = plannedRings(job, settings);
                 if (rings.length == 0) {
                     level.getServer().execute(() ->
                             source.sendFailure(Component.literal("❌ No locate search radii configured.")));
@@ -112,6 +119,7 @@ public class AsyncLocateHandler {
 
                 LocateCacheKey cacheKey = LocateCacheKey.of(level, canonicalTarget, origin, settings.cacheGranularity());
                 LocateCacheEntry<Structure> cacheEntry = getValidCacheEntry(STRUCTURE_CACHE, cacheKey, settings.cacheDurationMs());
+                job.incrementCounter(cacheEntry == null ? "cache_misses" : "cache_hits");
 
                 if (cacheEntry != null) {
                     BlockPos cachedPos = cacheEntry.pos();
@@ -122,21 +130,45 @@ public class AsyncLocateHandler {
                             source.sendSuccess(() -> Component.literal("✅ Using cached locate result."), false);
                             LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, surfacePos, true);
                         });
+                        completeJob(job, level, cachedPos, "memory-cache", true);
                         return;
                     }
                 }
+                Optional<LocatorResult> indexed = findIndexed(job, level);
+                if (indexed.isPresent()) {
+                    LocatorResult indexedResult = indexed.get();
+                    level.getServer().execute(() -> {
+                        BlockPos surfacePos = locateTeleportTarget(level, indexedResult.position());
+                        source.sendSuccess(() -> Component.literal("✅ Using persistent world index."), false);
+                        LocateResultHelper.sendResult(source, "commands.locatefixer.base.success",
+                                indexedResult.targetId(), origin, surfacePos, true);
+                    });
+                    completeIndexedJob(job, indexedResult);
+                    return;
+                }
+                SearchPlan fullPlan = plannedSearchPlan(job, settings);
                 int startIndex = findStartIndex(cacheEntry, origin, rings);
-                int totalSteps = Math.max(1, rings.length - startIndex);
+                SearchPlan activePlan = slicePlan(fullPlan, startIndex);
+                int totalSteps = activePlan.stages().size();
                 long startedAt = System.currentTimeMillis();
                 sendLocateStartUpdate(level, source, "structure", canonicalTarget, totalSteps, settings.maxRadius());
 
-                for (int i = startIndex; i < rings.length; i++) {
-                    int scanRadius = rings[i];
-                    int step = (i - startIndex) + 1;
+                LocatorBackend backend = selectedBackend(job);
+                AtomicInteger completedStages = new AtomicInteger();
+                AtomicReference<Holder<Structure>> foundHolder = new AtomicReference<>();
+                Optional<LocatorResult> located = backend.locate(job.request(), activePlan,
+                        job.cancellationToken(), (stage, cancellationToken) -> {
+                    cancellationToken.throwIfCancelled();
+                    job.incrementCounter("search_stages");
+                    int scanRadius = stage.radius();
+                    int step = completedStages.incrementAndGet();
+                    job.searching(Math.max(2, (step * 95) / totalSteps),
+                            "Structure ring " + step + "/" + totalSteps + " (" + scanRadius + " blocks)");
                     sendRingProgressUpdate(level, source, scanRadius, step, totalSteps, startedAt);
-                    LOGGER.info("[LocateFixer] Scanning for structure up to {} blocks", scanRadius);
+                    LOGGER.info("[LocateUnbound] Scanning for structure up to {} blocks", scanRadius);
 
                     int scanRadiusChunks = blocksToChunks(scanRadius);
+                    job.incrementCounter("backend_calls");
                     Pair<BlockPos, Holder<Structure>> result = callOnServerThread(level, () ->
                             level.getChunkSource().getGenerator()
                                     .findNearestMapStructure(level, holders, origin, scanRadiusChunks, false));
@@ -146,44 +178,62 @@ public class AsyncLocateHandler {
                         Holder<Structure> holder = result.getSecond();
                         String foundId = holderName(holder);
                         if (!allowedStructureIds.contains(foundId)) {
-                            LOGGER.warn("[LocateFixer] Ignoring locate candidate '{}' for request '{}'; resolved allowed ids={}",
+                            LOGGER.warn("[LocateUnbound] Ignoring locate candidate '{}' for request '{}'; resolved allowed ids={}",
                                     foundId, canonicalTarget, allowedStructureIds);
-                            continue;
+                            return Optional.empty();
                         }
 
                         putWithEviction(STRUCTURE_CACHE, cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
-
-                        level.getServer().execute(() -> {
-                            BlockPos surfacePos = locateTeleportTarget(level, structureTeleportTarget(level, pos, holder));
-                            sendLocateCompletionUpdate(source, startedAt, step, totalSteps, pos, surfacePos);
-                            LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, surfacePos, true);
-                        });
-                        return;
+                        foundHolder.set(holder);
+                        return Optional.of(createLocatorResult(job, pos, backend.id(), "world-generator", true));
                     }
+
+                    return Optional.empty();
+                });
+
+                if (located.isPresent()) {
+                    LocatorResult result = located.get();
+                    Holder<Structure> holder = foundHolder.get();
+                    int step = Math.max(1, completedStages.get());
+                    level.getServer().execute(() -> {
+                        BlockPos surfacePos = holder == null
+                                ? locateTeleportTarget(level, result.position())
+                                : locateTeleportTarget(level, structureTeleportTarget(level, result.position(), holder));
+                        sendLocateCompletionUpdate(source, startedAt, step, totalSteps, result.position(), surfacePos);
+                        if (holder != null) {
+                            LocateResultHelper.sendResult(source, "commands.locate.structure.success", holder, origin, surfacePos, true);
+                        } else {
+                            LocateResultHelper.sendResult(source, "commands.locatefixer.base.success",
+                                    result.targetId(), origin, surfacePos, true);
+                        }
+                    });
+                    completeBackendJob(job, level, result);
+                    return;
                 }
 
                 level.getServer().execute(() ->
                         source.sendFailure(Component.literal("❌ Structure not found within " + settings.maxRadius() + " blocks.")));
+                failJobNotFound(job, "Structure not found within " + settings.maxRadius() + " blocks.");
 
             } catch (Exception e) {
-                LOGGER.error("[LocateFixer] Unexpected error while locating structure", e);
+                if (e instanceof CancellationException cancellation) throw cancellation;
+                job.fail(e);
+                LOGGER.error("[LocateUnbound] Unexpected error while locating structure", e);
                 level.getServer().execute(() ->
-                        source.sendFailure(Component.literal("LocateFixer error (structure): " + e.getMessage())));
-            } finally {
-                IN_FLIGHT_PLAYERS.remove(playerKey);
+                        source.sendFailure(Component.literal("Locate Unbound error (structure): " + e.getMessage())));
             }
-        }, executor());
+        });
     }
 
 
     public static void locateCustomStructureAsync(CommandSourceStack source, String structureId, BlockPos origin, ServerLevel level) {
-        String playerKey = playerKey(source);
-        if (!acquireInFlight(source, playerKey)) return;
-
         final LocateSettings settings = SETTINGS;
-        CompletableFuture.runAsync(() -> {
+        Optional<LocatorProvider> registeredProvider = LocatorProviderRegistry.get(structureId);
+        LocatorTargetType requestType = registeredProvider.map(LocatorProvider::targetType)
+                .orElse(LocatorTargetType.CUSTOM);
+        submitLocateJob(source, requestType, structureId, origin, level, settings, job -> {
             try {
-                int[] rings = settings.rings();
+                int[] rings = plannedRings(job, settings);
                 if (rings.length == 0) {
                     level.getServer().execute(() ->
                             source.sendFailure(Component.literal("❌ No locate search radii configured.")));
@@ -191,14 +241,48 @@ public class AsyncLocateHandler {
                 }
 
                 int maxRadius = settings.maxRadius();
+                Optional<LocatorResult> indexed = registeredProvider.isPresent()
+                        && !registeredProvider.get().cachePolicy().allowsPersistentIndex()
+                        ? Optional.empty() : findIndexed(job, level);
+                if (indexed.isPresent()) {
+                    LocatorResult indexedResult = indexed.get();
+                    level.getServer().execute(() -> {
+                        BlockPos teleportTarget = locateTeleportTarget(level, indexedResult.position());
+                        source.sendSuccess(() -> Component.literal("✅ Using persistent world index."), false);
+                        if (registeredProvider.isPresent() && !registeredProvider.get().safelyTeleportable()) {
+                            source.sendSuccess(() -> Component.literal("✅ " + indexedResult.targetId() + " at "
+                                    + teleportTarget.getX() + " " + teleportTarget.getY() + " " + teleportTarget.getZ()), false);
+                        } else {
+                            LocateResultHelper.sendResult(source, "commands.locatefixer.base.success",
+                                    indexedResult.targetId(), origin, teleportTarget, true);
+                        }
+                    });
+                    completeIndexedJob(job, indexedResult);
+                    return;
+                }
                 level.getServer().execute(() -> source.sendSuccess(() ->
                         Component.literal("🔍 Locating structure '" + structureId + "'..."), false));
 
                 // Providers receive a live ServerLevel, so invoke them on the owning server thread.
                 // This is safe for ordinary mod state and avoids forcing every integration to be
                 // independently thread-safe.
-                Optional<BlockPos> result = callOnServerThread(level, () ->
-                        StructureLocatorRegistry.locate(structureId, level, origin, maxRadius));
+                Optional<LocatorProvider> provider = registeredProvider;
+                LocatorBackend backend = selectedBackend(job);
+                SearchPlan providerPlan = oneStagePlan(maxRadius, "provider lookup");
+                Optional<LocatorResult> backendResult = backend.locate(job.request(), providerPlan,
+                        job.cancellationToken(), (stage, cancellationToken) -> {
+                    cancellationToken.throwIfCancelled();
+                    job.incrementCounter("search_stages");
+                    job.incrementCounter("backend_calls");
+                    if (provider.isPresent()) {
+                        return invokeProvider(provider.get(), job, level, origin, stage.radius());
+                    }
+                    return callOnServerThread(level, () ->
+                                    StructureLocatorRegistry.locate(structureId, level, origin, stage.radius()))
+                            .map(position -> createLocatorResult(job, position, backend.id(),
+                                    "legacy-custom-provider", true));
+                });
+                Optional<BlockPos> result = backendResult.map(LocatorResult::position);
 
                 level.getServer().execute(() -> {
                     if (result.isEmpty()) {
@@ -207,26 +291,100 @@ public class AsyncLocateHandler {
                     }
 
                     BlockPos teleportTarget = locateTeleportTarget(level, result.get());
-                    LocateResultHelper.sendResult(source, "commands.locatefixer.base.success", structureId, origin, teleportTarget, true);
+                    if (provider.isPresent() && !provider.get().safelyTeleportable()) {
+                        source.sendSuccess(() -> Component.literal("✅ " + structureId + " at "
+                                + teleportTarget.getX() + " " + teleportTarget.getY() + " " + teleportTarget.getZ()), false);
+                    } else {
+                        LocateResultHelper.sendResult(source, "commands.locatefixer.base.success",
+                                structureId, origin, teleportTarget, true);
+                    }
                 });
+                if (result.isPresent()) {
+                    if (provider.isPresent()) {
+                        completeProviderJob(job, level, provider.get(), backendResult.orElseThrow());
+                    } else {
+                        completeBackendJob(job, level, backendResult.orElseThrow());
+                    }
+                } else {
+                    failJobNotFound(job, "Custom structure not found within " + maxRadius + " blocks.");
+                }
             } catch (Exception e) {
-                LOGGER.error("[LocateFixer] Unexpected error while locating custom structure '{}'", structureId, e);
+                if (e instanceof CancellationException cancellation) throw cancellation;
+                job.fail(e);
+                LOGGER.error("[LocateUnbound] Unexpected error while locating custom structure '{}'", structureId, e);
                 level.getServer().execute(() ->
-                        source.sendFailure(Component.literal("LocateFixer error (custom structure): " + e.getMessage())));
-            } finally {
-                IN_FLIGHT_PLAYERS.remove(playerKey);
+                        source.sendFailure(Component.literal("Locate Unbound error (custom structure): " + e.getMessage())));
             }
-        }, executor());
+        });
+    }
+
+    public static void locateFeatureAsync(CommandSourceStack source,
+                                          String featureId,
+                                          BlockPos origin,
+                                          ServerLevel level,
+                                          FeatureSearchOperation operation) {
+        final LocateSettings settings = SETTINGS;
+        submitLocateJob(source, LocatorTargetType.FEATURE, featureId, origin, level, settings, job -> {
+            try {
+                Optional<LocatorResult> indexed = findIndexed(job, level);
+                if (indexed.isPresent()) {
+                    LocatorResult indexedResult = indexed.get();
+                    level.getServer().execute(() -> {
+                        BlockPos surface = locateTeleportTarget(level, indexedResult.position());
+                        source.sendSuccess(() -> Component.literal("✅ Using persistent world index."), false);
+                        LocateResultHelper.sendResult(source, "commands.locatefixer.base.success",
+                                featureId, origin, surface, true);
+                    });
+                    completeIndexedJob(job, indexedResult);
+                    return;
+                }
+
+                SearchPlan plan = plannedSearchPlan(job, settings);
+                job.searching(10, "Searching biome generation settings for " + featureId);
+                LocatorBackend backend = selectedBackend(job);
+                Optional<LocatorResult> result = backend.locate(job.request(), plan,
+                        job.cancellationToken(), (stage, cancellationToken) -> {
+                    cancellationToken.throwIfCancelled();
+                    job.incrementCounter("search_stages");
+                    job.incrementCounter("backend_calls");
+                    Optional<BlockPos> position = callOnServerThread(level,
+                            () -> operation.search(new int[]{stage.radius()}, cancellationToken));
+                    return position.map(pos -> createLocatorResult(job, pos, backend.id(),
+                            "biome-generation-settings", true));
+                });
+                if (result.isPresent()) {
+                    LocatorResult located = result.get();
+                    level.getServer().execute(() -> {
+                        BlockPos surface = locateTeleportTarget(level, located.position());
+                        LocateResultHelper.sendResult(source, "commands.locatefixer.base.success",
+                                featureId, origin, surface, true);
+                    });
+                    completeBackendJob(job, level, located);
+                } else {
+                    level.getServer().execute(() -> source.sendFailure(Component.literal(
+                            "❌ Feature '" + featureId + "' not found within " + settings.maxRadius() + " blocks.")));
+                    failJobNotFound(job, "Feature not found within " + settings.maxRadius() + " blocks.");
+                }
+            } catch (Exception failure) {
+                if (failure instanceof CancellationException cancellation) throw cancellation;
+                job.fail(failure);
+                LOGGER.error("[LocateUnbound] Unexpected error while locating feature '{}'", featureId, failure);
+                level.getServer().execute(() -> source.sendFailure(Component.literal(
+                        "Locate Unbound error (feature): " + failure.getMessage())));
+            }
+        });
+    }
+
+    @FunctionalInterface
+    public interface FeatureSearchOperation {
+        Optional<BlockPos> search(int[] rings, com.thunder.locatefixer.search.LocateCancellationToken token);
     }
 
     public static void locateBiomeAsync(CommandSourceStack source, ResourceOrTagArgument.Result<Biome> biome, BlockPos origin, ServerLevel level) {
-        String playerKey = playerKey(source);
-        if (!acquireInFlight(source, playerKey)) return;
-
         final LocateSettings settings = SETTINGS;
-        CompletableFuture.runAsync(() -> {
+        submitLocateJob(source, LocatorTargetType.BIOME, biome.asPrintable(), origin, level, settings, job -> {
             try {
-                int[] rings = settings.rings();
+                int[] rings = plannedRings(job, settings);
                 if (rings.length == 0) {
                     level.getServer().execute(() ->
                             source.sendFailure(Component.literal("❌ No locate search radii configured.")));
@@ -235,6 +393,7 @@ public class AsyncLocateHandler {
 
                 LocateCacheKey cacheKey = LocateCacheKey.of(level, biome.asPrintable(), origin, settings.cacheGranularity());
                 LocateCacheEntry<Biome> cacheEntry = getValidCacheEntry(BIOME_CACHE, cacheKey, settings.cacheDurationMs());
+                job.incrementCounter(cacheEntry == null ? "cache_misses" : "cache_hits");
 
                 if (cacheEntry != null) {
                     BlockPos cachedPos = cacheEntry.pos();
@@ -245,91 +404,166 @@ public class AsyncLocateHandler {
                             source.sendSuccess(() -> Component.literal("✅ Using cached locate result."), false);
                             LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, teleportTarget, true);
                         });
+                        completeJob(job, level, cachedPos, "memory-cache", true);
                         return;
                     }
                 }
 
+                Optional<LocatorResult> indexed = findIndexed(job, level);
+                if (indexed.isPresent()) {
+                    LocatorResult indexedResult = indexed.get();
+                    level.getServer().execute(() -> {
+                        BlockPos teleportTarget = locateTeleportTarget(level, indexedResult.position());
+                        source.sendSuccess(() -> Component.literal("✅ Using persistent world index."), false);
+                        LocateResultHelper.sendResult(source, "commands.locatefixer.base.success",
+                                indexedResult.targetId(), origin, teleportTarget, true);
+                    });
+                    completeIndexedJob(job, indexedResult);
+                    return;
+                }
+
+                SearchPlan fullPlan = plannedSearchPlan(job, settings);
                 int startIndex = findStartIndex(cacheEntry, origin, rings);
-                int totalSteps = Math.max(1, rings.length - startIndex);
+                SearchPlan activePlan = slicePlan(fullPlan, startIndex);
+                int totalSteps = activePlan.stages().size();
                 long startedAt = System.currentTimeMillis();
                 sendLocateStartUpdate(level, source, "biome", biome.asPrintable(), totalSteps, settings.maxRadius());
 
-                for (int i = startIndex; i < rings.length; i++) {
-                    int scanRadius = rings[i];
-                    int step = (i - startIndex) + 1;
+                LocatorBackend backend = selectedBackend(job);
+                AtomicInteger completedStages = new AtomicInteger();
+                AtomicReference<Holder<Biome>> foundHolder = new AtomicReference<>();
+                Optional<LocatorResult> located = backend.locate(job.request(), activePlan,
+                        job.cancellationToken(), (stage, cancellationToken) -> {
+                    cancellationToken.throwIfCancelled();
+                    job.incrementCounter("search_stages");
+                    int scanRadius = stage.radius();
+                    int step = completedStages.incrementAndGet();
+                    job.searching(Math.max(2, (step * 95) / totalSteps),
+                            "Biome ring " + step + "/" + totalSteps + " (" + scanRadius + " blocks)");
                     sendRingProgressUpdate(level, source, scanRadius, step, totalSteps, startedAt);
-                    LOGGER.info("[LocateFixer] Scanning for biome up to {} blocks", scanRadius);
+                    LOGGER.info("[LocateUnbound] Scanning for biome up to {} blocks", scanRadius);
 
-                    Pair<BlockPos, Holder<Biome>> result = level.findClosestBiome3d(biome, origin, scanRadius,
-                            computeSampleRadius(scanRadius, settings), computeSampleStep(scanRadius, settings));
+                    Pair<BlockPos, Holder<Biome>> result = callOnServerThread(level, () ->
+                            level.findClosestBiome3d(biome, origin, scanRadius,
+                                    computeSampleRadius(scanRadius, stage.sampleRadiusMultiplier()),
+                                    computeSampleStep(scanRadius, stage.sampleStepMultiplier())));
+                    job.incrementCounter("backend_calls");
                     if (result != null) {
                         BlockPos pos = result.getFirst();
                         Holder<Biome> holder = result.getSecond();
 
                         putWithEviction(BIOME_CACHE, cacheKey, new LocateCacheEntry<>(pos, holder, System.currentTimeMillis()));
-
-                        level.getServer().execute(() -> {
-                            BlockPos teleportTarget = locateTeleportTarget(level, pos);
-                            sendLocateCompletionUpdate(source, startedAt, step, totalSteps, pos, teleportTarget);
-                            LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, teleportTarget, true);
-                        });
-                        return;
+                        foundHolder.set(holder);
+                        return Optional.of(createLocatorResult(job, pos, backend.id(), "world-generator", true));
                     }
+
+                    return Optional.empty();
+                });
+
+                if (located.isPresent()) {
+                    LocatorResult result = located.get();
+                    Holder<Biome> holder = foundHolder.get();
+                    int step = Math.max(1, completedStages.get());
+                    level.getServer().execute(() -> {
+                        BlockPos teleportTarget = locateTeleportTarget(level, result.position());
+                        sendLocateCompletionUpdate(source, startedAt, step, totalSteps, result.position(), teleportTarget);
+                        if (holder != null) {
+                            LocateResultHelper.sendResult(source, "commands.locate.biome.success", holder, origin, teleportTarget, true);
+                        } else {
+                            LocateResultHelper.sendResult(source, "commands.locatefixer.base.success",
+                                    result.targetId(), origin, teleportTarget, true);
+                        }
+                    });
+                    completeBackendJob(job, level, result);
+                    return;
                 }
 
                 level.getServer().execute(() ->
                         source.sendFailure(Component.literal("❌ Biome not found within " + settings.maxRadius() + " blocks.")));
+                failJobNotFound(job, "Biome not found within " + settings.maxRadius() + " blocks.");
 
             } catch (Exception e) {
-                LOGGER.error("[LocateFixer] Unexpected error while locating biome", e);
+                if (e instanceof CancellationException cancellation) throw cancellation;
+                job.fail(e);
+                LOGGER.error("[LocateUnbound] Unexpected error while locating biome", e);
                 level.getServer().execute(() ->
-                        source.sendFailure(Component.literal("LocateFixer error (biome): " + e.getMessage())));
-            } finally {
-                IN_FLIGHT_PLAYERS.remove(playerKey);
+                        source.sendFailure(Component.literal("Locate Unbound error (biome): " + e.getMessage())));
             }
-        }, executor());
+        });
     }
 
     public static void locatePoiAsync(CommandSourceStack source, ResourceOrTagArgument.Result<PoiType> poiType, BlockPos origin, ServerLevel level) {
-        String playerKey = playerKey(source);
-        if (!acquireInFlight(source, playerKey)) return;
-
         final LocateSettings settings = SETTINGS;
-        CompletableFuture.runAsync(() -> {
+        int configuredPoiRadius = settings.poiSearchRadius();
+        submitLocateJob(source, LocatorTargetType.POI, poiType.asPrintable(), origin, level,
+                configuredPoiRadius, job -> {
             try {
-                int poiRadius = settings.poiSearchRadius();
-                LOGGER.info("[LocateFixer] Scanning for POI within {} blocks", poiRadius);
+                int poiRadius = configuredPoiRadius;
+                job.searching(25, "Searching POIs within " + poiRadius + " blocks");
+                Optional<LocatorResult> indexed = findIndexed(job, level);
+                if (indexed.isPresent()) {
+                    LocatorResult indexedResult = indexed.get();
+                    level.getServer().execute(() -> {
+                        BlockPos teleportTarget = locateTeleportTarget(level, indexedResult.position());
+                        source.sendSuccess(() -> Component.literal("✅ Using persistent world index."), false);
+                        LocateResultHelper.sendResult(source, "commands.locatefixer.base.success",
+                                indexedResult.targetId(), origin, teleportTarget, true);
+                    });
+                    completeIndexedJob(job, indexedResult);
+                    return;
+                }
+                LOGGER.info("[LocateUnbound] Scanning for POI within {} blocks", poiRadius);
                 level.getServer().execute(() -> source.sendSuccess(() ->
                         Component.literal("🔍 Searching... radius " + poiRadius + " blocks ⏳"), false));
 
-                Optional<Pair<Holder<PoiType>, BlockPos>> result = callOnServerThread(level, () ->
-                        level.getPoiManager().findClosestWithType(
-                                poiType, origin, poiRadius, PoiManager.Occupancy.ANY));
+                LocatorBackend backend = selectedBackend(job);
+                AtomicReference<Holder<PoiType>> foundHolder = new AtomicReference<>();
+                Optional<LocatorResult> result = backend.locate(job.request(),
+                        oneStagePlan(poiRadius, "configured POI radius"), job.cancellationToken(),
+                        (stage, cancellationToken) -> {
+                    cancellationToken.throwIfCancelled();
+                    job.incrementCounter("search_stages");
+                    job.incrementCounter("backend_calls");
+                    Optional<Pair<Holder<PoiType>, BlockPos>> found = callOnServerThread(level, () ->
+                            level.getPoiManager().findClosestWithType(
+                                    poiType, origin, stage.radius(), PoiManager.Occupancy.ANY));
+                    if (found.isEmpty()) return Optional.empty();
+                    foundHolder.set(found.get().getFirst());
+                    return Optional.of(createLocatorResult(job, found.get().getSecond(), backend.id(),
+                            "poi-manager", true));
+                });
 
                 if (result.isPresent()) {
-                    Pair<Holder<PoiType>, BlockPos> found = result.get();
-                    BlockPos pos = found.getSecond();
-                    Holder<PoiType> holder = found.getFirst();
+                    LocatorResult located = result.get();
+                    BlockPos pos = located.position();
+                    Holder<PoiType> holder = foundHolder.get();
 
                     level.getServer().execute(() -> {
                         BlockPos teleportTarget = locateTeleportTarget(level, pos);
                         source.sendSuccess(() -> Component.literal("✅ Search completed."), false);
-                        LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, teleportTarget, true);
+                        if (holder != null) {
+                            LocateResultHelper.sendResult(source, "commands.locate.poi.success", holder, origin, teleportTarget, true);
+                        } else {
+                            LocateResultHelper.sendResult(source, "commands.locatefixer.base.success",
+                                    located.targetId(), origin, teleportTarget, true);
+                        }
                     });
+                    completeBackendJob(job, level, located);
                 } else {
                     level.getServer().execute(() ->
                             source.sendFailure(Component.literal("❌ POI not found within " + poiRadius + " blocks."))
                     );
+                    failJobNotFound(job, "POI not found within " + poiRadius + " blocks.");
                 }
 
             } catch (Exception e) {
-                LOGGER.error("[LocateFixer] Unexpected error while locating POI", e);
+                if (e instanceof CancellationException cancellation) throw cancellation;
+                job.fail(e);
+                LOGGER.error("[LocateUnbound] Unexpected error while locating POI", e);
                 level.getServer().execute(() ->
-                        source.sendFailure(Component.literal("LocateFixer error (POI): " + e.getMessage())));
-            } finally {
-                IN_FLIGHT_PLAYERS.remove(playerKey);
+                        source.sendFailure(Component.literal("Locate Unbound error (POI): " + e.getMessage())));
             }
-        }, executor());
+        });
     }
 
     public static int locateNearestStructuresAsync(CommandSourceStack source, int count) {
@@ -337,10 +571,7 @@ public class AsyncLocateHandler {
         BlockPos origin = BlockPos.containing(source.getPosition());
         final LocateSettings settings = SETTINGS;
 
-        String playerKey = playerKey(source);
-        if (!acquireInFlight(source, playerKey)) return 0;
-
-        CompletableFuture.runAsync(() -> {
+        submitLocateJob(source, LocatorTargetType.STRUCTURE, "*", origin, level, settings, job -> {
             try {
                 List<Holder.Reference<Structure>> allStructures = callOnServerThread(level, () ->
                         level.registryAccess().registryOrThrow(Registries.STRUCTURE).holders().toList());
@@ -358,12 +589,22 @@ public class AsyncLocateHandler {
                 Map<String, LocatedEntry> bestByType = new LinkedHashMap<>();
                 Set<Long> seenPositions = new HashSet<>();
 
-                for (int ring : settings.rings()) {
+                int[] plannedRings = plannedRings(job, settings);
+                int ringIndex = 0;
+                for (int ring : plannedRings) {
+                    job.cancellationToken().throwIfCancelled();
+                    ringIndex++;
+                    job.searching(Math.max(2, ringIndex * 95 / plannedRings.length),
+                            "Sampling structure candidates within " + ring + " blocks");
+                    job.incrementCounter("search_stages");
                     final int ringFinal = ring;
                     level.getServer().execute(() -> source.sendSuccess(() ->
                             Component.literal("🔍 Scanning for nearest " + count + " structures up to " + ringFinal + " blocks..."), false));
 
                     for (BlockPos anchor : createAnchors(origin, ring)) {
+                        job.cancellationToken().throwIfCancelled();
+                        job.incrementCounter("anchors_sampled");
+                        job.incrementCounter("backend_calls");
                         int ringChunks = blocksToChunks(ring);
                         Pair<BlockPos, Holder<Structure>> result = callOnServerThread(level, () ->
                                 level.getChunkSource().getGenerator()
@@ -404,13 +645,18 @@ public class AsyncLocateHandler {
                                 + " [" + entry.name() + "]"), false);
                     }
                 });
+                if (nearest.isEmpty()) {
+                    failJobNotFound(job, "No structures found within " + settings.maxRadius() + " blocks.");
+                } else {
+                    completeJob(job, level, nearest.get(0).pos(), "world-generator", true);
+                }
             } catch (Exception e) {
-                LOGGER.error("[LocateFixer] Unexpected error while locating nearest structures", e);
-                level.getServer().execute(() -> source.sendFailure(Component.literal("LocateFixer error (structure multi): " + e.getMessage())));
-            } finally {
-                IN_FLIGHT_PLAYERS.remove(playerKey);
+                if (e instanceof CancellationException cancellation) throw cancellation;
+                job.fail(e);
+                LOGGER.error("[LocateUnbound] Unexpected error while locating nearest structures", e);
+                level.getServer().execute(() -> source.sendFailure(Component.literal("Locate Unbound error (structure multi): " + e.getMessage())));
             }
-        }, executor());
+        });
 
         return count;
     }
@@ -420,24 +666,28 @@ public class AsyncLocateHandler {
         BlockPos origin = BlockPos.containing(source.getPosition());
         final LocateSettings settings = SETTINGS;
 
-        String playerKey = playerKey(source);
-        if (!acquireInFlight(source, playerKey)) return 0;
-
-        CompletableFuture.runAsync(() -> {
+        submitLocateJob(source, LocatorTargetType.BIOME, "*", origin, level, settings, job -> {
             try {
                 // Collect all biomes registered in this dimension so we can search for each
                 // one specifically, rather than matching "any biome" from every anchor point
                 // (which produces many duplicate results of the same nearest biome).
-                List<Holder<Biome>> allBiomes = level.getChunkSource()
+                List<Holder<Biome>> allBiomes = callOnServerThread(level, () -> level.getChunkSource()
                         .getGenerator()
                         .getBiomeSource()
                         .possibleBiomes()
                         .stream()
-                        .toList();
+                        .toList());
 
                 Map<String, LocatedEntry> bestByBiome = new LinkedHashMap<>();
 
-                for (int ring : settings.rings()) {
+                int[] plannedRings = plannedRings(job, settings);
+                int ringIndex = 0;
+                for (int ring : plannedRings) {
+                    job.cancellationToken().throwIfCancelled();
+                    ringIndex++;
+                    job.searching(Math.max(2, ringIndex * 95 / plannedRings.length),
+                            "Sampling biome candidates within " + ring + " blocks");
+                    job.incrementCounter("search_stages");
                     int sampleRadius = computeSampleRadius(ring, settings);
                     int step = computeSampleStep(ring, settings);
                     final int ringFinal = ring;
@@ -445,12 +695,15 @@ public class AsyncLocateHandler {
                             Component.literal("🔍 Sampling for nearest " + count + " biomes up to " + ringFinal + " blocks..."), false));
 
                     for (Holder<Biome> targetBiome : allBiomes) {
+                        job.cancellationToken().throwIfCancelled();
+                        job.incrementCounter("candidates_sampled");
+                        job.incrementCounter("backend_calls");
                         String biomeName = holderName(targetBiome);
                         if (bestByBiome.containsKey(biomeName)) continue; // already found one closer
 
-                        Pair<BlockPos, Holder<Biome>> result = targetBiome.unwrapKey()
+                        Pair<BlockPos, Holder<Biome>> result = callOnServerThread(level, () -> targetBiome.unwrapKey()
                                 .map(key -> level.findClosestBiome3d(h -> h.is(key), origin, ring, sampleRadius, step))
-                                .orElse(null);
+                                .orElse(null));
                         if (result == null) continue;
 
                         BlockPos pos = result.getFirst();
@@ -480,13 +733,18 @@ public class AsyncLocateHandler {
                                 + " [" + entry.name() + "]"), false);
                     }
                 });
+                if (nearest.isEmpty()) {
+                    failJobNotFound(job, "No biomes found within " + settings.maxRadius() + " blocks.");
+                } else {
+                    completeJob(job, level, nearest.get(0).pos(), "world-generator", true);
+                }
             } catch (Exception e) {
-                LOGGER.error("[LocateFixer] Unexpected error while locating nearest biomes", e);
-                level.getServer().execute(() -> source.sendFailure(Component.literal("LocateFixer error (biome multi): " + e.getMessage())));
-            } finally {
-                IN_FLIGHT_PLAYERS.remove(playerKey);
+                if (e instanceof CancellationException cancellation) throw cancellation;
+                job.fail(e);
+                LOGGER.error("[LocateUnbound] Unexpected error while locating nearest biomes", e);
+                level.getServer().execute(() -> source.sendFailure(Component.literal("Locate Unbound error (biome multi): " + e.getMessage())));
             }
-        }, executor());
+        });
 
         return count;
     }
@@ -495,23 +753,193 @@ public class AsyncLocateHandler {
     // Internal helpers
     // ---------------------------------------------------------------------------
 
+    private static void submitLocateJob(CommandSourceStack source,
+                                        LocatorTargetType targetType,
+                                        String targetId,
+                                        BlockPos origin,
+                                        ServerLevel level,
+                                        LocateSettings settings,
+                                        LocateJobManager.LocateJobTask task) {
+        submitLocateJob(source, targetType, targetId, origin, level, settings.maxRadius(), task);
+    }
+
+    private static void submitLocateJob(CommandSourceStack source,
+                                        LocatorTargetType targetType,
+                                        String targetId,
+                                        BlockPos origin,
+                                        ServerLevel level,
+                                        int maxRadius,
+                                        LocateJobManager.LocateJobTask task) {
+        LocatorRequest request = LocatorRequest.create(playerKey(source), targetType, targetId,
+                level.dimension().location().toString(), origin, maxRadius);
+        LocateJobManager.Submission submission = LocateRuntime.jobs().submit(request, job -> {
+            job.selectBackend(LocateRuntime.backends().select(targetType)
+                    .map(backend -> backend.id()).orElse("locatefixer:vanilla"));
+            job.attribute("biomespy", Boolean.toString(LocateRuntime.integrations().active("biomespy")));
+            task.run(job);
+        });
+        if (!submission.accepted()) {
+            source.sendFailure(Component.literal("⏳ " + submission.rejectionMessage()));
+        }
+    }
+
+    private static int[] plannedRings(LocateJob job, LocateSettings settings) {
+        SearchPlan plan = plannedSearchPlan(job, settings);
+        return plan.stages().stream().mapToInt(SearchStage::radius).toArray();
+    }
+
+    private static SearchPlan plannedSearchPlan(LocateJob job, LocateSettings settings) {
+        SearchPlan plan;
+        if (com.thunder.locatefixer.config.LocateFixerConfig.SERVER.adaptiveSearchEnabled.get()) {
+            plan = LocateRuntime.planner().plan(job.request(), settings.rings(),
+                    LocateRuntime.searchHistory().contextFor(job.request()),
+                    settings.biomeSampleRadiusMultiplier(), settings.biomeSampleStepMultiplier());
+        } else {
+            double radiusMultiplier = job.request().targetType() == LocatorTargetType.BIOME
+                    ? settings.biomeSampleRadiusMultiplier() : 1.0D;
+            double stepMultiplier = job.request().targetType() == LocatorTargetType.BIOME
+                    ? settings.biomeSampleStepMultiplier() : 1.0D;
+            List<SearchStage> stages = Arrays.stream(settings.rings())
+                    .filter(radius -> radius > 0 && radius <= job.request().maxRadius())
+                    .distinct()
+                    .sorted()
+                    .mapToObj(radius -> new SearchStage(radius, radiusMultiplier, stepMultiplier,
+                            "configured fallback"))
+                    .toList();
+            if (stages.isEmpty()) {
+                stages = List.of(new SearchStage(job.request().maxRadius(), radiusMultiplier,
+                        stepMultiplier, "maximum-radius fallback"));
+            }
+            plan = new SearchPlan(stages, stages.get(stages.size() - 1).radius(), false);
+        }
+        job.attribute("adaptive_plan", Boolean.toString(plan.adaptive()));
+        job.attribute("planned_stages", Integer.toString(plan.stages().size()));
+        return plan;
+    }
+
+    private static SearchPlan slicePlan(SearchPlan plan, int startIndex) {
+        int clampedStart = Mth.clamp(startIndex, 0, plan.stages().size() - 1);
+        return new SearchPlan(plan.stages().subList(clampedStart, plan.stages().size()),
+                plan.maxRadius(), plan.adaptive());
+    }
+
+    private static SearchPlan oneStagePlan(int radius, String reason) {
+        return new SearchPlan(List.of(new SearchStage(radius, 1.0D, 1.0D, reason)), radius, false);
+    }
+
+    private static LocatorBackend selectedBackend(LocateJob job) {
+        LocatorBackend backend = LocateRuntime.backends().select(job.request().targetType())
+                .orElseThrow(() -> new IllegalStateException(
+                        "No locator backend is available for " + job.request().targetType()));
+        job.selectBackend(backend.id());
+        return backend;
+    }
+
+    private static void completeJob(LocateJob job, ServerLevel level, BlockPos position,
+                                    String discoverySource, boolean verified) throws Exception {
+        LocatorResult result = createLocatorResult(job, position, job.snapshot().backendId(),
+                discoverySource, verified);
+        completeBackendJob(job, level, result);
+    }
+
+    private static LocatorResult createLocatorResult(LocateJob job, BlockPos position, String backendId,
+                                                       String discoverySource, boolean verified) {
+        int distance = horizontalDistance(job.request().origin(), position);
+        return new LocatorResult(job.request().targetType(), job.request().targetId(),
+                job.request().dimensionId(), position, backendId, discoverySource,
+                Instant.now(), true, verified, Map.of("distance", Integer.toString(distance)));
+    }
+
+    private static void completeBackendJob(LocateJob job, ServerLevel level, LocatorResult result) throws Exception {
+        if (result.targetType() != job.request().targetType()
+                || !result.dimensionId().equals(job.request().dimensionId())
+                || horizontalDistance(job.request().origin(), result.position()) > job.request().maxRadius()) {
+            throw new IllegalArgumentException("Backend returned an out-of-scope locate result");
+        }
+        int distance = horizontalDistance(job.request().origin(), result.position());
+        job.selectBackend(result.backendId());
+        job.attribute("result_distance", Integer.toString(distance));
+        LocateRuntime.searchHistory().recordSuccess(job.request(), distance, 50);
+        if (com.thunder.locatefixer.config.LocateFixerConfig.SERVER.persistentIndexEnabled.get()) {
+            callOnServerThread(level, () -> {
+                WorldLocatorIndex.get(level).record(result);
+                return null;
+            });
+        }
+        job.found(result);
+    }
+
+    private static Optional<LocatorResult> findIndexed(LocateJob job, ServerLevel level) throws Exception {
+        if (!com.thunder.locatefixer.config.LocateFixerConfig.SERVER.persistentIndexEnabled.get()) {
+            return Optional.empty();
+        }
+        Optional<LocatorResult> result = callOnServerThread(level, () -> WorldLocatorIndex.get(level).findNearest(
+                job.request().targetType(), job.request().targetId(), job.request().dimensionId(),
+                job.request().origin(), job.request().maxRadius()));
+        job.incrementCounter(result.isPresent() ? "index_hits" : "index_misses");
+        return result;
+    }
+
+    private static void completeIndexedJob(LocateJob job, LocatorResult result) {
+        job.selectBackend("locatefixer:persistent-index");
+        LocateRuntime.searchHistory().recordSuccess(job.request(),
+                horizontalDistance(job.request().origin(), result.position()), 1);
+        job.found(result);
+    }
+
+    private static Optional<LocatorResult> invokeProvider(LocatorProvider provider,
+                                                           LocateJob job,
+                                                           ServerLevel level,
+                                                           BlockPos origin,
+                                                           int requestedRadius) {
+        String dimensionId = level.dimension().location().toString();
+        if (!provider.supportedDimensions().isEmpty()
+                && !provider.supportedDimensions().contains(dimensionId)) {
+            return Optional.empty();
+        }
+        int radius = Math.min(requestedRadius, provider.maximumRadius());
+        Callable<Optional<LocatorResult>> locate = () -> provider.locate(
+                level, job.request().targetId(), origin, radius, job.cancellationToken());
+        try {
+            return provider.threadSafety() == LocatorThreadSafety.WORKER_SAFE
+                    ? locate.call()
+                    : callOnServerThread(level, locate);
+        } catch (Exception failure) {
+            throw new CompletionException(failure);
+        }
+    }
+
+    private static void completeProviderJob(LocateJob job, ServerLevel level,
+                                            LocatorProvider provider, LocatorResult result) throws Exception {
+        if (!result.dimensionId().equals(job.request().dimensionId())
+                || result.targetType() != job.request().targetType()
+                || horizontalDistance(job.request().origin(), result.position()) > job.request().maxRadius()) {
+            throw new IllegalArgumentException("Provider returned an out-of-scope locate result");
+        }
+        int distance = horizontalDistance(job.request().origin(), result.position());
+        job.selectBackend(result.backendId());
+        job.attribute("result_distance", Integer.toString(distance));
+        LocateRuntime.searchHistory().recordSuccess(job.request(), distance, provider.estimatedSearchCost());
+        if (com.thunder.locatefixer.config.LocateFixerConfig.SERVER.persistentIndexEnabled.get()
+                && provider.cachePolicy().allowsPersistentIndex()) {
+            callOnServerThread(level, () -> {
+                WorldLocatorIndex.get(level).record(result);
+                return null;
+            });
+        }
+        job.found(result);
+    }
+
+    private static void failJobNotFound(LocateJob job, String message) {
+        LocateRuntime.searchHistory().recordFailure(job.request(), job.request().maxRadius(), 50);
+        job.notFound(message);
+    }
+
     /**
      * Returns a stable key identifying the requesting entity (player name or "server").
      */
     private static String playerKey(CommandSourceStack source) {
         return source.getTextName();
-    }
-
-    /**
-     * Attempts to register the player as having an in-flight request.
-     * Returns false (and sends a failure message) if they already have one.
-     */
-    private static boolean acquireInFlight(CommandSourceStack source, String key) {
-        if (!IN_FLIGHT_PLAYERS.add(key)) {
-            source.sendFailure(Component.literal("⏳ You already have a locate search in progress. Please wait for it to finish."));
-            return false;
-        }
-        return true;
     }
 
     /**
@@ -551,7 +979,8 @@ public class AsyncLocateHandler {
      */
     private static <T> void putWithEviction(ConcurrentMap<LocateCacheKey, LocateCacheEntry<T>> cache,
                                             LocateCacheKey key, LocateCacheEntry<T> entry) {
-        if (cache.size() >= CACHE_MAX_ENTRIES) {
+        int maxEntries = com.thunder.locatefixer.config.LocateFixerConfig.SERVER.cacheMaxEntries.get();
+        if (cache.size() >= maxEntries) {
             LocateCacheKey oldest = null;
             long oldestTs = Long.MAX_VALUE;
             for (Map.Entry<LocateCacheKey, LocateCacheEntry<T>> e : cache.entrySet()) {
@@ -575,17 +1004,25 @@ public class AsyncLocateHandler {
     }
 
     private static int computeSampleRadius(int searchRadius, LocateSettings settings) {
+        return computeSampleRadius(searchRadius, settings.biomeSampleRadiusMultiplier());
+    }
+
+    private static int computeSampleRadius(int searchRadius, double multiplier) {
         int computed = Mth.clamp(searchRadius / 256, 16, 96);
-        return (int) Mth.clamp((float) Math.round(computed * settings.biomeSampleRadiusMultiplier()), 16, 256);
+        return (int) Mth.clamp((float) Math.round(computed * multiplier), 16, 256);
     }
 
     private static int computeSampleStep(int searchRadius, LocateSettings settings) {
+        return computeSampleStep(searchRadius, settings.biomeSampleStepMultiplier());
+    }
+
+    private static int computeSampleStep(int searchRadius, double multiplier) {
         int computed = Mth.clamp(searchRadius / 192, 24, 128);
-        return (int) Mth.clamp((float) Math.round(computed * settings.biomeSampleStepMultiplier()), 16, 256);
+        return (int) Mth.clamp((float) Math.round(computed * multiplier), 16, 256);
     }
 
     /**
-     * Minecraft's structure locator accepts a radius in chunks, while Locate Fixer's
+     * Minecraft's structure locator accepts a radius in chunks, while Locate Unbound's
      * public configuration is expressed in blocks.
      */
     private static int blocksToChunks(int radiusBlocks) {
@@ -608,7 +1045,7 @@ public class AsyncLocateHandler {
      * worker waits for the result, leaving command dispatch asynchronous without racing
      * Minecraft's non-concurrent world-state caches.
      */
-    private static <T> T callOnServerThread(ServerLevel level, Callable<T> task) throws Exception {
+    public static <T> T callOnServerThread(ServerLevel level, Callable<T> task) throws Exception {
         if (level.getServer().isSameThread()) {
             return task.call();
         }
@@ -673,7 +1110,7 @@ public class AsyncLocateHandler {
                 return bestCenter;
             }
         } catch (Exception e) {
-            LOGGER.debug("[LocateFixer] Could not refine structure locate target for '{}'.",
+            LOGGER.debug("[LocateUnbound] Could not refine structure locate target for '{}'.",
                     holderName(holder), e);
         }
 
@@ -798,7 +1235,7 @@ public class AsyncLocateHandler {
             }
         }
         clearCaches();
-        LOGGER.info("[LocateFixer] Reloaded locate settings: {} rings, {}ms cache, {} thread(s).",
+        LOGGER.info("[LocateUnbound] Reloaded locate settings: {} rings, {}ms cache, {} thread(s).",
                 newSettings.rings().length, newSettings.cacheDurationMs(), newSettings.threadCount());
     }
 
@@ -808,6 +1245,10 @@ public class AsyncLocateHandler {
         BIOME_CACHE.clear();
     }
 
+    public static int cacheEntryCount() {
+        return STRUCTURE_CACHE.size() + BIOME_CACHE.size();
+    }
+
     public static void shutdownForServerStop() {
         synchronized (AsyncLocateHandler.class) {
             if (LOCATE_EXECUTOR != null) {
@@ -815,7 +1256,6 @@ public class AsyncLocateHandler {
                 LOCATE_EXECUTOR = null;
             }
         }
-        IN_FLIGHT_PLAYERS.clear();
         clearCaches();
     }
 
@@ -840,7 +1280,7 @@ public class AsyncLocateHandler {
 
             return new LocateSettings(rings, poiRadius, cacheDurationMs, cacheGranularity, threadCount, radiusMultiplier, stepMultiplier);
         } catch (IllegalStateException ex) {
-            LOGGER.debug("[LocateFixer] Config not ready yet, using default locate settings.");
+            LOGGER.debug("[LocateUnbound] Config not ready yet, using default locate settings.");
             return DEFAULT_SETTINGS;
         }
     }
@@ -870,7 +1310,7 @@ public class AsyncLocateHandler {
         AtomicInteger counter = new AtomicInteger();
         return runnable -> {
             Thread thread = new Thread(runnable);
-            thread.setName("LocateFixer-AsyncLocate-" + counter.incrementAndGet());
+            thread.setName("LocateUnbound-Background-" + counter.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         };

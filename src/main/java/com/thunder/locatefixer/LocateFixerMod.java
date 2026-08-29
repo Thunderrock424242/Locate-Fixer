@@ -3,6 +3,7 @@ package com.thunder.locatefixer;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.logging.LogUtils;
 import com.thunder.locatefixer.command.LocateDimensionCommand;
+import com.thunder.locatefixer.command.LocateControlCommand;
 import com.thunder.locatefixer.command.LocateFixerCustomStructureCommand;
 import com.thunder.locatefixer.command.LocateFixerFeatureCommand;
 import com.thunder.locatefixer.command.LocateFixerNearestCommand;
@@ -19,6 +20,7 @@ import org.slf4j.Logger;
 
 public final class LocateFixerMod {
     public static final String MOD_ID = "locatefixer";
+    public static final String DISPLAY_NAME = "Locate Unbound";
     public static final Logger LOGGER = LogUtils.getLogger();
 
     private static boolean initialized;
@@ -32,6 +34,8 @@ public final class LocateFixerMod {
         }
         initialized = true;
 
+        LocateRuntime.initialize();
+
         AsyncLocateHandler.runAsyncTask("schematic-scan", SchematicLocatorRegistry::scanWorldEditSchematicsFolder);
         if (PlatformHooks.isModLoaded("worldedit")) {
             WorldEditHook.enable();
@@ -39,6 +43,7 @@ public final class LocateFixerMod {
     }
 
     public static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
+        LocateControlCommand.register(dispatcher);
         LocateFixerSchematicCommand.register(dispatcher);
         LocateDimensionCommand.register(dispatcher);
         LocateFixerNearestCommand.register(dispatcher);
@@ -48,13 +53,15 @@ public final class LocateFixerMod {
 
     public static void onServerStarting() {
         AsyncLocateHandler.reloadConfig();
-        LOGGER.info("[LocateFixer] Server starting - async locate handler ready ({} rings configured).",
+        LocateRuntime.reloadConfig();
+        LOGGER.info("[LocateUnbound] Server starting - locate engine ready ({} rings configured).",
                 LocateFixerConfig.SERVER.locateRings.get().size());
     }
 
     public static void onServerStopping(MinecraftServer server) {
         LocateTeleportHandler.shutdownForServerStop(server);
         AsyncLocateHandler.shutdownForServerStop();
+        LocateRuntime.shutdown();
     }
 
     public static void onServerDataReload() {

@@ -10,7 +10,7 @@ plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
 }
 
-rootProject.name = 'Locate-Fixer'
+rootProject.name = 'Locate-Unbound'
 
 include 'forge-1.20.1'
 include 'fabric-1.20.1'

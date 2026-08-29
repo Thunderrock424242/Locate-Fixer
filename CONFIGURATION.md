@@ -1,60 +1,78 @@
-# Locate Fixer Configuration Guide
+# Locate Unbound configuration
 
-Locate Fixer exposes a server-side configuration file that lets you tune the way the mod searches for structures, biomes, and points of interest. The same settings and file name are used on Forge, NeoForge, and Fabric.
+Locate Unbound keeps the established filename `config/locatefixer-server.toml`. Existing keys remain accepted; newly generated Fabric configs group the 4.0 options by subsystem. Forge and NeoForge retain legacy paths for existing settings and add the new category paths.
 
-## Finding the config file
+Fabric reloads this file on server startup and `/reload`. Forge and NeoForge use their loader config reload events. A restart is the reliable fallback on every loader.
 
-When the mod starts for the first time it writes `locatefixer-server.toml` inside the loader's standard config directory:
+## Search
 
-- **Dedicated server:** `<server root>/config/locatefixer-server.toml`
-- **Single-player / client-hosted worlds:** `<minecraft directory>/config/locatefixer-server.toml`
+| Key | Default | Safe range | Purpose |
+| --- | ---: | ---: | --- |
+| `locateRings` | `[6400, 16000, 32000, 64000, 128000, 256000]` | positive integers | Fallback radii and absolute search limit. |
+| `locateThreadCount` | `1` | 1–8 | Bounded locate worker count. World access is still marshalled to the server thread. |
+| `biomeSampleRadiusMultiplier` | `1.5` | 1.0–8.0 | Biome sample-radius scaling. |
+| `biomeSampleStepMultiplier` | `1.75` | 1.0–8.0 | Biome step scaling. |
+| `adaptiveSearchEnabled` | `true` | boolean | Uses distance history to skip already-covered rings. Disable to use configured rings exactly. |
+| `enableFeatureLocateCommand` | `false` | boolean | Enables operator-only `/locate feature`. |
 
-Forge and NeoForge apply changes when their loader config-reload event fires. Fabric rereads the file when the server starts and after a successful `/reload`. Restarting the server remains a reliable fallback on every loader.
+The legacy nearest toggle remains `enableNearestCommand = false`. POI range remains `poiSearchRadius = 256` with a safe range of 16–4096.
 
-## Editing tips
+## Queue
 
-1. Stop the server or pause the single-player game before doing large edits. This ensures the file is not overwritten while you work.
-2. Keep the file in valid [TOML](https://toml.io/en/) format. Most settings are nested inside the `[locate]`, `[commands]`, or `[poi]` section; legacy toggles may appear at the top level.
-3. On Fabric, run `/reload` after saving. On Forge or NeoForge, use the loader's normal config-reload workflow. Watch the server log for errors; Fabric keeps the last valid values when it cannot read the file.
+| Key | Default | Safe range | Purpose |
+| --- | ---: | ---: | --- |
+| `queueMaxPending` / `queue.maxPending` | `32` | 1–1024 | Pending job capacity. New requests are rejected cleanly when full. |
+| `searchTimeoutSeconds` / `queue.searchTimeoutSeconds` | `120` | 5–3600 | Cooperative timeout including queue wait. |
 
-## Available settings
+One active request per command source is allowed. `/locate cancel` sets the cancellation token; it never interrupts a Minecraft world call midway.
 
-All values listed below match the defaults that ship with the mod.
+## Cache
 
-### `[locate]`
+| Key | Default | Safe range | Purpose |
+| --- | ---: | ---: | --- |
+| `cacheDurationMinutes` | `30` | 1–240 | Memory-cache lifetime. |
+| `cacheChunkGranularity` | `8` | 1–128 | Coarse origin grouping for reusable results. |
+| `cacheMaxEntries` / `cache.maxEntries` | `512` | 16–65536 | Maximum entries in each bounded in-memory cache. |
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `locateRings` | `[6400, 16000, 32000, 64000, 128000, 256000]` | Ordered list of radii (in blocks) that the locate command searches through. Increase or decrease entries to scan different distances. Each value must be a positive integer. |
-| `locateThreadCount` | `1` | Number of background workers that orchestrate locate requests. Live chunk, POI, and mod-owned world access is still serialized onto Minecraft's server thread for safety. |
-| `cacheDurationMinutes` | `30` | Minutes that successful locate results stay cached before expiring. Longer durations reduce work at the cost of stale data. Allowed range is 1–240 minutes. |
-| `cacheChunkGranularity` | `8` | Chunk granularity used when caching locate results. Higher numbers share cached results across a wider area; lower numbers increase precision. Valid range is 1–128. |
-| `biomeSampleRadiusMultiplier` | `1.5` | Multiplier applied to the computed biome sample radius to reduce sample density. Increase it to check fewer sample points per ring (minimum 1.0, maximum 8.0). |
-| `biomeSampleStepMultiplier` | `1.75` | Multiplier applied to the computed biome sample step to reduce sample density. Higher values increase the step size between samples (minimum 1.0, maximum 8.0). |
-| `enableFeatureLocateCommand` | `false` | Enables `/locate feature <placed_feature_id>` for scanning nearby biome generation settings for a matching placed feature (for example tree features). |
+## Persistent index
 
-### Top-level settings
+The index is standard Minecraft SavedData at `world/data/locatefixer_index.dat`.
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `enableNearestCommand` | `false` | Enables the operator-only `/locate nearest structure <count>` and `/locate nearest biome <count>` commands. |
+| Key | Default | Safe range | Purpose |
+| --- | ---: | ---: | --- |
+| `persistentIndexEnabled` / `index.enabled` | `true` | boolean | Enables lookup and writes. Disabling does not delete existing data. |
+| `persistentIndexMaxEntries` / `index.maxEntries` | `8192` | 64–100000 | World-wide cap; oldest discoveries are removed first. |
+| `persistentIndexExpiryDays` / `index.expiryDays` | `90` | 1–3650 | Maximum age for stable structure and biome discoveries. |
+| `persistentIndexVerificationMinutes` / `index.verificationMinutes` | `30` | 1–10080 | Re-search window for POI, feature, and custom entries that may change. |
 
-### `[commands]`
+Malformed records are skipped during load. Unknown newer schema versions are ignored instead of being rewritten.
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `enableCommandErrorFixer` | `true` | Rewrites vague command parse errors for `/locate`, `/summon`, `/give`, and `/effect` with registry-aware fuzzy suggestions that can be clicked to refill the fixed command. |
+## Teleport
 
-### `[poi]`
+| Key | Default | Safe range | Purpose |
+| --- | ---: | ---: | --- |
+| `teleportPreloadRadiusChunks` / `teleport.preloadRadiusChunks` | `1` | 0–8 | Temporary ticket radius around the destination. |
+| `teleportCountdownSeconds` / `teleport.countdownSeconds` | `5` | 0–60 | Countdown length. |
+| `teleportCountdownEnabled` / `teleport.countdownEnabled` | `true` | boolean | Skips the countdown when false, while still waiting for readiness. |
+| `teleportTimeoutSeconds` / `teleport.timeoutSeconds` | `30` | 5–300 | Cancels travel if chunks never become ready. |
+| `safeHorizontalRadius` / `teleport.safeHorizontalRadius` | `8` | 1–32 | Landing search radius. |
+| `safeVerticalRange` / `teleport.safeVerticalRange` | `48` | 4–128 | Vertical search above and below the target. |
+| `allowWaterLanding` | `false` | boolean | Allows water in the player space. |
+| `allowLavaLanding` | `false` | boolean | Allows lava. This is intentionally unsafe. |
+| `allowFireLanding` | `false` | boolean | Allows fire body spaces and dangerous fire blocks. |
+| `allowPowderSnowLanding` | `false` | boolean | Allows powder snow. |
+| `returnPointEnabled` | `false` | boolean | Reserved for the planned return command; no return command is registered in 4.0.0. |
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `poiSearchRadius` | `256` | Radius in blocks used when scanning for points of interest. Raise it to look farther away or lower it for faster but more localized searches. Allowed range is 16–4096 blocks. |
+Only a short-lived coordinate grant emitted by Locate Unbound activates preload handling. Other `/tp` commands use vanilla behavior.
 
-## Advanced usage
+## Integrations and benchmark
 
-- The `locateRings` list can be tailored for custom world scales. For example, skyblock-style worlds can use a much smaller set like `[1024, 2048, 4096]` to reduce wasted scans.
-- If you install heavy structure packs, increase `locateThreadCount` and `cacheDurationMinutes` to balance the additional work.
-- Combining a higher `cacheChunkGranularity` with longer cache durations is useful on exploration-heavy servers where many players run locate commands in the same region.
+| Key | Default | Purpose |
+| --- | ---: | --- |
+| `enableBiomeSpyCompatibility` / `integrations.biomeSpy` | `true` | Documents and reports transparent BiomeSpy influence. |
+| `enableCompassCompatibility` / `integrations.compassMods` | `true` | Reserved control for compass adapters; current behavior is safe coexistence. |
+| `enableAsyncLocatorConflictMode` / `integrations.asyncLocatorConflictMode` | `true` | Yields vanilla locate interception when Async Locator Refined is detected. |
+| `benchmarkEnabled` / `benchmark.enabled` | `false` | Allows `/locateunbound benchmark` to report the operator's latest job metrics. |
+| `commands.enableCommandErrorFixer` | `true` | Registry-aware correction suggestions for supported commands. |
 
-Feel free to experiment—the mod clamps every value to the safe ranges listed above, so an out-of-range number will snap to the nearest valid bound instead of crashing the server.
+Values outside safe ranges are clamped. Invalid Fabric values fall back to the last valid/default value and produce a server log error.

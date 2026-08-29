@@ -1,5 +1,6 @@
 package com.thunder.locatefixer.util;
 
+import com.thunder.locatefixer.teleport.LocateTeleportHandler;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
@@ -9,10 +10,12 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ComponentUtils;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.util.Mth;
+import net.minecraft.server.level.ServerPlayer;
 
 public class LocateResultHelper {
 
     public static void sendResult(CommandSourceStack source, String label, Holder<?> target, BlockPos from, BlockPos to, boolean absoluteY) {
+        authorizeTeleport(source, to);
         int distance = absoluteY
                 ? Mth.floor(Mth.sqrt((float) from.distSqr(to)))
                 : Mth.floor(distXZ(from, to));
@@ -41,6 +44,7 @@ public class LocateResultHelper {
         return (float) Math.sqrt((double) dx * dx + (double) dz * dz);
     }
     public static void sendResult(CommandSourceStack source, String label, String name, BlockPos from, BlockPos to, boolean absoluteY) {
+        authorizeTeleport(source, to);
         int distance = absoluteY
                 ? Mth.floor(Mth.sqrt((float) from.distSqr(to)))
                 : Mth.floor(distXZ(from, to));
@@ -56,5 +60,11 @@ public class LocateResultHelper {
 
         Component message = Component.translatable(label, name, coords, distance);
         source.sendSuccess(() -> message, false);
+    }
+
+    private static void authorizeTeleport(CommandSourceStack source, BlockPos target) {
+        if (source.getEntity() instanceof ServerPlayer player) {
+            LocateTeleportHandler.authorize(player, source.getLevel(), target);
+        }
     }
 }

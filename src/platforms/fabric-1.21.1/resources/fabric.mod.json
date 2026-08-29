@@ -6,6 +6,7 @@
   "description": "${mod_description}",
   "authors": ["${mod_authors}"],
   "license": "${mod_license}",
+  "icon": "assets/locatefixer/icon.png",
   "environment": "*",
   "entrypoints": {
     "main": ["com.thunder.locatefixer.fabric.LocateFixerFabric"]

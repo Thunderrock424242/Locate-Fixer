@@ -13,7 +13,7 @@ public class WorldEditHook {
     private static boolean registered = false;
 
     public static void enable() {
-        LocateFixerMod.LOGGER.info("[LocateFixer] WorldEdit detected. Hooking into schematic tracker.");
+        LocateFixerMod.LOGGER.info("[LocateUnbound] WorldEdit detected. Hooking into schematic tracker.");
         if (!registered) {
             WorldEdit.getInstance().getEventBus().register(new WorldEditHook());
             registered = true;
@@ -30,7 +30,7 @@ public class WorldEditHook {
 
         if (schematicId != null && position != null) {
             SchematicLocatorRegistry.registerSchematicPosition(schematicId, position);
-            LocateFixerMod.LOGGER.info("[LocateFixer] Registered schematic '{}' at {}", schematicId, position);
+            LocateFixerMod.LOGGER.info("[LocateUnbound] Registered schematic '{}' at {}", schematicId, position);
             RecentSchematicTracker.clear(actor.getName());
         }
     }

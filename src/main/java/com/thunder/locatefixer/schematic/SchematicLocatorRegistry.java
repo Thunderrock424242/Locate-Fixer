@@ -74,11 +74,11 @@ public class SchematicLocatorRegistry {
                         if (!LOCATORS.containsKey(key) && !SCHEMATIC_POSITIONS.containsKey(key)) {
                             // Register a sentinel locator that reports "not pasted yet"
                             LOCATORS.put(key, (level, origin, maxRadius) -> Optional.empty());
-                            LocateFixerMod.LOGGER.info("[LocateFixer] Indexed schematic '{}' (not yet pasted — use WorldEdit to paste it first)", name);
+                            LocateFixerMod.LOGGER.info("[LocateUnbound] Indexed schematic '{}' (not yet pasted — use WorldEdit to paste it first)", name);
                         }
                     });
         } catch (IOException e) {
-            LocateFixerMod.LOGGER.error("[LocateFixer] Failed to scan schematics: {}", e.getMessage());
+            LocateFixerMod.LOGGER.error("[LocateUnbound] Failed to scan schematics: {}", e.getMessage());
         }
     }
 }

@@ -43,6 +43,11 @@ neoForge {
             sourceSet sourceSets.main
         }
     }
+
+    unitTest {
+        enable()
+        testedMod = mods.locatefixer
+    }
 }
 
 dependencies {

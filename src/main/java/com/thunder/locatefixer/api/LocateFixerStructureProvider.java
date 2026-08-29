@@ -9,6 +9,7 @@ import java.util.Optional;
  * Implement this interface in your own structure handler class, then call
  * {@link StructureLocatorRegistry#register(LocateFixerStructureProvider)} during mod setup.
  */
+@Deprecated(forRemoval = false)
 public interface LocateFixerStructureProvider {
 
     /**

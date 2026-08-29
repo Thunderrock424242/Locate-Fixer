@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import com.thunder.locatefixer.util.LocateResultHelper;
+import com.thunder.locatefixer.search.LocateCancellationToken;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -70,22 +71,9 @@ public final class LocateFixerFeatureCommand {
         BlockPos origin = BlockPos.containing(source.getPosition());
         source.sendSuccess(() -> Component.literal("🔍 Locating feature '" + featureId + "'..."), false);
 
-        AsyncLocateHandler.runAsyncTask("locate-feature-" + featureId, () -> {
-            int[] searchRings = LocateFixerConfig.SERVER.locateRings.get().stream().mapToInt(Integer::intValue).toArray();
-            if (searchRings.length == 0) {
-                level.getServer().execute(() -> source.sendFailure(Component.literal("❌ No locate search radii configured.")));
-                return;
-            }
-
-            Optional<BlockPos> result = findNearestFeatureBiome(level, origin, featureKey, searchRings);
-            level.getServer().execute(() -> result.ifPresentOrElse(pos -> {
-                BlockPos surface = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos);
-                LocateResultHelper.sendResult(
-                        source, "commands.locatefixer.base.success", featureId.toString(), origin, surface, true);
-            }, () -> source.sendFailure(Component.literal(
-                    "❌ Feature '" + featureId + "' not found within "
-                            + searchRings[searchRings.length - 1] + " blocks."))));
-        });
+        AsyncLocateHandler.locateFeatureAsync(source, featureId.toString(), origin, level,
+                (searchRings, cancellationToken) -> findNearestFeatureBiome(
+                        level, origin, featureKey, searchRings, cancellationToken));
 
         return 1;
     }
@@ -94,9 +82,11 @@ public final class LocateFixerFeatureCommand {
             ServerLevel level,
             BlockPos origin,
             ResourceKey<PlacedFeature> featureKey,
-            int[] searchRings
+            int[] searchRings,
+            LocateCancellationToken cancellationToken
     ) {
         for (int radius : sortedRings(searchRings)) {
+            cancellationToken.throwIfCancelled();
             int horizontalInterval = Math.max(32, Math.min(256, radius / 256));
             var match = level.findClosestBiome3d(
                     biome -> biomeContainsFeature(biome, featureKey),

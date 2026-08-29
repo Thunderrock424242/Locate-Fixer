@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.time.Instant;
 
 /**
  * Public API for LocateFixer to support mod-added structures
@@ -39,7 +40,43 @@ public class StructureLocatorRegistry {
      * @param locator logic to locate the structure
      */
     public static void register(String id, CustomStructureLocator locator) {
-        LOCATORS.put(normalizeId(id), Objects.requireNonNull(locator, "locator"));
+        String normalizedId = normalizeId(id);
+        LOCATORS.put(normalizedId, Objects.requireNonNull(locator, "locator"));
+        if (LocatorProviderRegistry.get(normalizedId).isEmpty()) {
+            try {
+                LocatorProviderRegistry.register(new LocatorProvider() {
+                    @Override
+                    public String id() {
+                        return normalizedId;
+                    }
+
+                    @Override
+                    public String displayName() {
+                        return normalizedId;
+                    }
+
+                    @Override
+                    public LocatorTargetType targetType() {
+                        return LocatorTargetType.CUSTOM;
+                    }
+
+                    @Override
+                    public Optional<LocatorResult> locate(ServerLevel level, String targetId, BlockPos origin,
+                                                          int maxRadius,
+                                                          com.thunder.locatefixer.search.LocateCancellationToken token) {
+                        token.throwIfCancelled();
+                        return StructureLocatorRegistry.locate(normalizedId, level, origin, maxRadius)
+                                .map(position -> new LocatorResult(LocatorTargetType.CUSTOM, normalizedId,
+                                        level.dimension().location().toString(), position,
+                                        "locatefixer:legacy-provider", "legacy-custom-provider",
+                                        Instant.now(), true, true, Map.of()));
+                    }
+                });
+            } catch (IllegalStateException | IllegalArgumentException ignoredRegistration) {
+                // A concurrent setup callback won the registration race; the adapter delegates
+                // through LOCATORS. Legacy non-namespaced IDs remain supported by this bridge.
+            }
+        }
     }
 
     /**
@@ -55,7 +92,7 @@ public class StructureLocatorRegistry {
     }
 
     /**
-     * Tries to locate a registered structure. Locate Fixer invokes this method on
+     * Tries to locate a registered structure. Locate Unbound invokes this method on
      * Minecraft's server thread when servicing the public command.
      */
     public static Optional<BlockPos> locate(String id, ServerLevel level, BlockPos origin, int maxRadius) {

@@ -1,5 +1,6 @@
 package com.thunder.locatefixer.mixin;
 
+import com.thunder.locatefixer.LocateRuntime;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import com.thunder.locatefixer.util.CommandErrorFixer;
@@ -35,7 +36,7 @@ public class LocateCommandMixin {
             ResourceOrTagKeyArgument.Result<Structure> structure,
             CallbackInfoReturnable<Integer> cir
     ) {
-        if (!isLocateFeaturesEnabled()) {
+        if (!isLocateFeaturesEnabled() || !LocateRuntime.shouldInterceptVanillaLocate()) {
             return;
         }
         ServerLevel level = source.getLevel();
@@ -56,7 +57,7 @@ public class LocateCommandMixin {
             ResourceOrTagArgument.Result<Biome> biome,
             CallbackInfoReturnable<Integer> cir
     ) {
-        if (!isLocateFeaturesEnabled()) {
+        if (!isLocateFeaturesEnabled() || !LocateRuntime.shouldInterceptVanillaLocate()) {
             return;
         }
         ServerLevel level = source.getLevel();
@@ -72,7 +73,7 @@ public class LocateCommandMixin {
             ResourceOrTagArgument.Result<PoiType> poiType,
             CallbackInfoReturnable<Integer> cir
     ) {
-        if (!isLocateFeaturesEnabled()) {
+        if (!isLocateFeaturesEnabled() || !LocateRuntime.shouldInterceptVanillaLocate()) {
             return;
         }
         ServerLevel level = source.getLevel();
