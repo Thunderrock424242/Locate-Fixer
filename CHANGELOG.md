@@ -14,14 +14,16 @@
 - Added pluggable backend metadata and deterministic backend selection.
 - Added adaptive search plans with configured-ring fallback and bounded distance history.
 - Added a bounded job queue, named daemon workers, cooperative cancellation/timeouts, per-source flood protection, status history, and progress metrics.
-- Routed structures, biomes, POIs, placed features, nearest-X searches, and custom providers through the shared job owner.
-- Moved biome and feature world queries through the server executor.
+- Routed structures, biomes, POIs, feature-capability lookups, dimension travel, schematic lookups, nearest-X searches, and custom providers through the shared job owner.
+- Moved biome, feature, dimension, schematic, and provider world queries through the server executor.
+- Rechecked cancellation and deadlines after every backend world operation so a late result cannot be accepted after timeout.
 
 ### Persistent world index
 
 - Added dimension-aware, deduplicated, bounded Minecraft SavedData at `world/data/locatefixer_index.dat`.
-- Added schema versioning, malformed-entry isolation, age expiry, mutable-target verification windows, and automatic result writes.
-- Kept the existing memory cache as the first lookup layer.
+- Added schema versioning, malformed-entry isolation, age expiry, mutable-target verification windows, and verified-only result writes.
+- Kept the existing structure and biome memory caches and completed provider `MEMORY`/`PERSISTENT` cache-policy handling.
+- Prevented unverified and legacy predictive feature records from being served as exact discoveries.
 
 ### API and integrations
 
@@ -29,12 +31,14 @@
 - Preserved the old custom-structure registry through a deprecated compatibility bridge.
 - Added safe optional detection and diagnostics for BiomeSpy, Nature's Compass, Explorer's Compass, Async Locator Refined, and WorldEdit.
 - Added conflict-safe vanilla `/locate` ownership when Async Locator Refined is detected.
+- Replaced the nonfunctional WorldEdit edit-session guess with `/locate schematic record <name>` and dimension-aware session lookup.
 
 ### Commands and diagnostics
 
 - Added `/locate status` and `/locate cancel`.
 - Added `/locateunbound diagnostics` and the compatibility alias `/locatefixer diagnostics`.
 - Added config-gated `/locateunbound benchmark` for the operator's latest search.
+- Added tracked-future diagnostics and fixed the fast-completion race that could retain finished futures.
 
 ### Teleport safety
 
@@ -46,8 +50,8 @@
 
 ### Validation
 
-- Added planner and persistent-index unit tests.
+- Added planner, progress-message, persistent-index, provider-memory-cache, backend deadline, and job-cleanup unit tests.
 - Enabled the NeoForge ModDev JUnit test environment and added test-source Minecraft dependencies for the legacy Forge target.
 - Added all-loader metadata icon declarations.
-- Java compilation was checked for Forge 1.20.1 and NeoForge 1.21.1; the local Gradle run reached clean Java compiler output but its final task status remained blocked by Windows locks on ModDev artifact JARs. Fabric setup was separately blocked by a stale Loom intermediary mapping lock before compilation.
-- The new unit tests remain unexecuted locally because the same locked ModDev artifact prevents Gradle from completing test compilation.
+- The four-target Gradle test suite passes 11 tests per target (44 executions total) for Forge 1.20.1, Fabric 1.20.1, NeoForge 1.21.1, and Fabric 1.21.1.
+- Live client, dedicated-server, multiplayer, command, teleport, WorldEdit, and gameplay acceptance checks remain release-candidate validation tasks.

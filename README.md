@@ -37,7 +37,7 @@ Background workers own planning, cancellation, progress, and result bookkeeping.
 - **Backend registry.** `LocatorBackendRegistry` chooses the highest-priority available backend for structures, biomes, POIs, features, or custom targets. The built-in backend preserves Minecraft's standard world-generator methods, so lower-level optimizers can still influence them.
 - **Adaptive plans.** Configured rings remain the fallback. Successful and failed distance history lets later searches skip radii already known to be unhelpful while respecting the configured maximum.
 - **Persistent index.** Verified results are deduplicated in `world/data/locatefixer_index.dat`. The index is dimension-aware, versioned, bounded, expiration-aware, and tolerant of malformed entries.
-- **Memory cache.** Recent structure and biome results remain the fastest lookup layer.
+- **Memory cache.** Recent structure, biome, and eligible provider results remain the fastest lookup layer. Provider `MEMORY` entries expire with the configured cache lifetime and are never written to the world save.
 - **Unified providers.** Third-party providers declare type, dimension support, radius, cache policy, thread safety, estimated cost, and teleport suitability. The old custom-structure API remains available through a compatibility bridge.
 
 ## Commands
@@ -57,8 +57,11 @@ Additional commands:
 - `/locatefixer ...` — compatibility alias for Locate Unbound control commands.
 - `/xlocate customstructure <id>` — searches a registered generic or legacy custom provider.
 - `/locate nearest structure <count>` and `/locate nearest biome <count>` — optional operator commands.
-- `/locate feature <namespace:id>` — optional placed-feature search.
-- Existing dimension, schematic, and command-correction utilities remain registered.
+- `/locate feature <namespace:id>` — optional search for the nearest biome whose generation settings can contain the feature. It does not claim that an exact placed feature exists at the reported coordinates.
+- `/locate dimension <dimension> [biome]` — queued, cancellable destination search followed by safe travel.
+- `/locate schematic <name>` — finds a schematic anchor recorded in the current server session.
+- `/locate schematic record <name>` — operator command to record the current position after a WorldEdit paste.
+- Existing command-correction utilities remain registered.
 
 ## Safe travel
 
@@ -81,7 +84,7 @@ Use `/locate cancel` to stop either the current search or countdown.
 - **BiomeSpy:** detected without a dependency. Locate Unbound deliberately continues through Minecraft's standard biome and structure methods, allowing BiomeSpy's lower-level mixins to optimize those calls. No BiomeSpy code or reflection hook is copied.
 - **Nature's Compass / Explorer's Compass:** detected and reported. Their existing worker managers remain owners of compass searches; Locate Unbound does not overwrite them with fragile optional mixins.
 - **Async Locator Refined:** conflict-safe mode yields vanilla `/locate` interception to the other mod when a recognized mod ID is detected, avoiding duplicate searches.
-- **WorldEdit:** the existing optional schematic integration remains.
+- **WorldEdit:** `.schem` names are discovered for suggestions. Because WorldEdit does not expose a stable public paste event containing both the schematic name and destination, an operator explicitly records the pasted anchor with `/locate schematic record <name>`.
 - **Registry and TerraBlender world generation:** active registries and biome sources remain authoritative.
 
 Cartographer maps, dolphins, and third-party exploration items are not mixin-rerouted in this release because no stable cross-loader hook exists. The generic provider/backend API is the supported integration seam for those systems.

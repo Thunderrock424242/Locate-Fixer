@@ -1,38 +1,20 @@
 package com.thunder.locatefixer.integration;
 
-import com.sk89q.worldedit.WorldEdit;
-import com.sk89q.worldedit.event.extent.EditSessionEvent;
-import com.sk89q.worldedit.extension.platform.Actor;
-import com.sk89q.worldedit.util.eventbus.Subscribe;
 import com.thunder.locatefixer.LocateFixerMod;
-import com.thunder.locatefixer.schematic.SchematicLocatorRegistry;
-import net.minecraft.core.BlockPos;
 
+/** Announces the supported, explicit WorldEdit schematic workflow without binding to unstable events. */
+public final class WorldEditHook {
+    private static boolean announced;
 
-public class WorldEditHook {
-    private static boolean registered = false;
-
-    public static void enable() {
-        LocateFixerMod.LOGGER.info("[LocateUnbound] WorldEdit detected. Hooking into schematic tracker.");
-        if (!registered) {
-            WorldEdit.getInstance().getEventBus().register(new WorldEditHook());
-            registered = true;
-        }
+    private WorldEditHook() {
     }
 
-    @Subscribe
-    public void onSchematicPasted(EditSessionEvent event) {
-        Actor actor = event.getActor();
-        if (actor == null || actor.getName() == null) return;
-
-        String schematicId = RecentSchematicTracker.getRecentSchematic(actor.getName());
-        BlockPos position = RecentSchematicTracker.getRecentPosition(actor.getName());
-
-        if (schematicId != null && position != null) {
-            SchematicLocatorRegistry.registerSchematicPosition(schematicId, position);
-            LocateFixerMod.LOGGER.info("[LocateUnbound] Registered schematic '{}' at {}", schematicId, position);
-            RecentSchematicTracker.clear(actor.getName());
+    public static synchronized void enable() {
+        if (announced) {
+            return;
         }
+        announced = true;
+        LocateFixerMod.LOGGER.info("[LocateUnbound] WorldEdit detected. After a paste, record its anchor with "
+                + "/locate schematic record <name>.");
     }
-
 }

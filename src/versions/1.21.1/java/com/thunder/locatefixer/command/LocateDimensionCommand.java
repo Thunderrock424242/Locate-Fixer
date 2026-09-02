@@ -3,6 +3,10 @@ package com.thunder.locatefixer.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.datafixers.util.Pair;
+import com.thunder.locatefixer.LocateFixerMod;
+import com.thunder.locatefixer.api.LocatorResult;
+import com.thunder.locatefixer.api.LocatorTargetType;
+import com.thunder.locatefixer.job.LocateJobSubmissions;
 import com.thunder.locatefixer.teleport.LocateTeleportHandler;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import net.minecraft.commands.CommandSourceStack;
@@ -23,8 +27,11 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.levelgen.Heightmap;
 
+import java.time.Instant;
+import java.util.Map;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
 
 public final class LocateDimensionCommand {
@@ -74,82 +81,106 @@ public final class LocateDimensionCommand {
 
     private static int execute(CommandSourceStack source, ServerLevel targetLevel, ResourceLocation biomeId) throws CommandSyntaxException {
         ServerPlayer player = source.getPlayerOrException();
-        source.sendSuccess(() -> Component.literal("🔍 Locating destination biome asynchronously..."), false);
+        BlockPos requestOrigin = BlockPos.containing(source.getPosition());
+        String requestTarget = biomeId == null ? "random" : biomeId.toString();
+        boolean accepted = LocateJobSubmissions.submit(source, LocatorTargetType.BIOME, requestTarget,
+                requestOrigin, targetLevel, RANDOM_COORD_RANGE + BIOME_SEARCH_RADIUS, job -> {
+            try {
+                RandomSource random = RandomSource.create();
+                DimensionBiomeContext biomeContext = AsyncLocateHandler.callOnServerThread(targetLevel, () ->
+                        new DimensionBiomeContext(targetLevel.getChunkSource().getGenerator().getBiomeSource()
+                                .possibleBiomes().stream().toList(), targetLevel.getSeaLevel()));
+                job.cancellationToken().throwIfCancelled();
 
-        AsyncLocateHandler.runAsyncTask("locate-dimension", () -> {
-            RandomSource random = RandomSource.create();
-
-            List<Holder<Biome>> possibleBiomes = targetLevel.getChunkSource()
-                    .getGenerator()
-                    .getBiomeSource()
-                    .possibleBiomes()
-                    .stream()
-                    .toList();
-
-            if (possibleBiomes.isEmpty()) {
-                targetLevel.getServer().execute(() -> source.sendFailure(Component.literal("❌ No biomes were found for that dimension.")));
-                return;
-            }
-
-            Pair<BlockPos, Holder<Biome>> selectedBiome = null;
-            for (int attempt = 0; attempt < MAX_RANDOM_ATTEMPTS && selectedBiome == null; attempt++) {
-                int progress = Math.max(1, (int) Math.round(((attempt + 1) * 100.0D) / MAX_RANDOM_ATTEMPTS));
-                int searchAttempt = attempt + 1;
-                targetLevel.getServer().execute(() -> source.sendSuccess(() ->
-                        Component.literal("🔍 Locating biome... attempt " + searchAttempt + "/" + MAX_RANDOM_ATTEMPTS + " (" + progress + "%)"), false));
-
-                BlockPos randomOrigin = new BlockPos(
-                        random.nextIntBetweenInclusive(-RANDOM_COORD_RANGE, RANDOM_COORD_RANGE),
-                        targetLevel.getSeaLevel(),
-                        random.nextIntBetweenInclusive(-RANDOM_COORD_RANGE, RANDOM_COORD_RANGE)
-                );
-
-                if (biomeId != null) {
-                    ResourceKey<Biome> biomeKey = ResourceKey.create(Registries.BIOME, biomeId);
-                    selectedBiome = targetLevel.findClosestBiome3d(holder -> holder.is(biomeKey), randomOrigin,
-                            BIOME_SEARCH_RADIUS, BIOME_HORIZONTAL_STEP, BIOME_VERTICAL_STEP);
-                } else {
-                    Holder<Biome> biome = possibleBiomes.get(random.nextInt(possibleBiomes.size()));
-                    selectedBiome = targetLevel.findClosestBiome3d(holder -> holder.is(biome), randomOrigin,
-                            BIOME_SEARCH_RADIUS, BIOME_HORIZONTAL_STEP, BIOME_VERTICAL_STEP);
-                }
-            }
-
-            if (selectedBiome == null) {
-                String biomeLabel = biomeId == null ? "a random biome" : "biome " + biomeId;
-                targetLevel.getServer().execute(() -> source.sendFailure(Component.literal("❌ Could not find " + biomeLabel + " in that dimension.")));
-                return;
-            }
-
-            BlockPos biomePos = selectedBiome.getFirst();
-            Holder<Biome> biome = selectedBiome.getSecond();
-
-            targetLevel.getServer().execute(() -> {
-                if (player.isRemoved()) {
+                if (biomeContext.possibleBiomes().isEmpty()) {
+                    String message = "No biomes were found for that dimension.";
+                    targetLevel.getServer().execute(() -> source.sendFailure(Component.literal("❌ " + message)));
+                    job.notFound(message);
                     return;
                 }
 
-                // Heightmaps, blocks, chunks, and teleport tickets belong to the server
-                // thread. Keep the background task limited to biome-source sampling.
-                BlockPos surfaceOrigin = findSurfaceAnchor(targetLevel, biomePos);
-                BlockPos safeTarget = LocateTeleportHandler.findSurfaceSafeTeleportPosition(targetLevel, surfaceOrigin);
+                Pair<BlockPos, Holder<Biome>> selectedBiome = null;
+                int attempts = 0;
+                for (int attempt = 0; attempt < MAX_RANDOM_ATTEMPTS && selectedBiome == null; attempt++) {
+                    job.cancellationToken().throwIfCancelled();
+                    attempts = attempt + 1;
+                    int progress = Math.max(1, (int) Math.round((attempts * 95.0D) / MAX_RANDOM_ATTEMPTS));
+                    int searchAttempt = attempts;
+                    job.searching(progress, "Locating destination biome, attempt " + searchAttempt
+                            + "/" + MAX_RANDOM_ATTEMPTS);
+                    targetLevel.getServer().execute(() -> source.sendSuccess(() -> Component.literal(
+                            "🔍 Locating biome... attempt " + searchAttempt + "/" + MAX_RANDOM_ATTEMPTS
+                                    + " (" + progress + "%)"), false));
 
-                String biomeName = biome.unwrapKey()
-                        .map(key -> key.location().toString())
-                        .orElse("unknown");
-                String destinationLabel = biomeId == null ? "random biome " + biomeName : "biome " + biomeName;
+                    BlockPos randomOrigin = new BlockPos(
+                            random.nextIntBetweenInclusive(-RANDOM_COORD_RANGE, RANDOM_COORD_RANGE),
+                            biomeContext.seaLevel(),
+                            random.nextIntBetweenInclusive(-RANDOM_COORD_RANGE, RANDOM_COORD_RANGE));
+                    Holder<Biome> randomBiome = biomeId == null
+                            ? biomeContext.possibleBiomes().get(random.nextInt(biomeContext.possibleBiomes().size()))
+                            : null;
+                    selectedBiome = AsyncLocateHandler.callOnServerThread(targetLevel, () -> {
+                        if (biomeId != null) {
+                            ResourceKey<Biome> biomeKey = ResourceKey.create(Registries.BIOME, biomeId);
+                            return targetLevel.findClosestBiome3d(holder -> holder.is(biomeKey), randomOrigin,
+                                    BIOME_SEARCH_RADIUS, BIOME_HORIZONTAL_STEP, BIOME_VERTICAL_STEP);
+                        }
+                        return targetLevel.findClosestBiome3d(holder -> holder.is(randomBiome), randomOrigin,
+                                BIOME_SEARCH_RADIUS, BIOME_HORIZONTAL_STEP, BIOME_VERTICAL_STEP);
+                    });
+                    job.cancellationToken().throwIfCancelled();
+                }
 
-                source.sendSuccess(() -> Component.literal("📦 Destination found. Preloading chunks for safe teleport..."), false);
-                LocateTeleportHandler.startTeleportWithPreload(player, targetLevel, safeTarget, finalPos -> {
-                    player.teleportTo(targetLevel, finalPos.getX() + 0.5D, finalPos.getY(), finalPos.getZ() + 0.5D,
-                            player.getYRot(), player.getXRot());
-                    source.sendSuccess(() -> Component.literal("✅ Teleported to " + destinationLabel +
-                            " at " + finalPos.getX() + " " + finalPos.getY() + " " + finalPos.getZ()), true);
+                if (selectedBiome == null) {
+                    String biomeLabel = biomeId == null ? "a random biome" : "biome " + biomeId;
+                    String message = "Could not find " + biomeLabel + " in that dimension.";
+                    targetLevel.getServer().execute(() -> source.sendFailure(Component.literal("❌ " + message)));
+                    job.notFound(message);
+                    return;
+                }
+
+                BlockPos biomePos = selectedBiome.getFirst();
+                Holder<Biome> biome = selectedBiome.getSecond();
+                int completedAttempts = attempts;
+                AsyncLocateHandler.callOnServerThread(targetLevel, () -> {
+                    job.cancellationToken().throwIfCancelled();
+                    if (player.isRemoved()) {
+                        throw new CancellationException("Player disconnected before dimension travel began");
+                    }
+                    BlockPos surfaceOrigin = findSurfaceAnchor(targetLevel, biomePos);
+                    BlockPos safeTarget = LocateTeleportHandler.findSurfaceSafeTeleportPosition(targetLevel, surfaceOrigin);
+                    String biomeName = biome.unwrapKey().map(key -> key.location().toString()).orElse("unknown");
+                    String destinationLabel = biomeId == null ? "random biome " + biomeName : "biome " + biomeName;
+
+                    source.sendSuccess(() -> Component.literal("📦 Destination found. Preloading chunks for safe teleport..."), false);
+                    LocateTeleportHandler.startTeleportWithPreload(player, targetLevel, safeTarget, finalPos -> {
+                        player.teleportTo(targetLevel, finalPos.getX() + 0.5D, finalPos.getY(), finalPos.getZ() + 0.5D,
+                                player.getYRot(), player.getXRot());
+                        source.sendSuccess(() -> Component.literal("✅ Teleported to " + destinationLabel
+                                + " at " + finalPos.getX() + " " + finalPos.getY() + " " + finalPos.getZ()), true);
+                    });
+                    return null;
                 });
-            });
+                job.attribute("attempts", Integer.toString(completedAttempts));
+                job.attribute("destination_dimension", targetLevel.dimension().location().toString());
+                job.found(new LocatorResult(LocatorTargetType.BIOME, requestTarget,
+                        targetLevel.dimension().location().toString(), biomePos,
+                        "locatefixer:vanilla", "dimension-biome-search", Instant.now(),
+                        false, true, Map.of("attempts", Integer.toString(completedAttempts))));
+            } catch (CancellationException cancellation) {
+                throw cancellation;
+            } catch (Exception failure) {
+                job.fail(failure);
+                LocateFixerMod.LOGGER.error("[LocateUnbound] Dimension biome search failed", failure);
+                targetLevel.getServer().execute(() -> source.sendFailure(Component.literal(
+                        "Locate Unbound error (dimension): " + failure.getMessage())));
+            }
         });
 
-        return 1;
+        if (accepted) {
+            source.sendSuccess(() -> Component.literal("🔍 Destination biome search queued."), false);
+        }
+        return accepted ? 1 : 0;
     }
 
     private static BlockPos findSurfaceAnchor(ServerLevel level, BlockPos biomePos) {
@@ -160,5 +191,8 @@ public final class LocateDimensionCommand {
         int maxSafeY = level.getMaxBuildHeight() - 3;
         int clampedY = Math.max(minSafeY, Math.min(maxSafeY, anchorY));
         return new BlockPos(biomePos.getX(), clampedY, biomePos.getZ());
+    }
+
+    private record DimensionBiomeContext(List<Holder<Biome>> possibleBiomes, int seaLevel) {
     }
 }

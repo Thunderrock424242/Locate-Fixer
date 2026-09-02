@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LocatorIndexStateTest {
@@ -45,8 +46,33 @@ class LocatorIndexStateTest {
         assertEquals(1, loaded.size());
     }
 
+    @Test
+    void neverServesUnverifiedOrLegacyPredictiveFeatureEntries() {
+        LocatorIndexState unverifiedState = new LocatorIndexState();
+        unverifiedState.add(result(LocatorTargetType.FEATURE, "minecraft:ore_diamond",
+                new BlockPos(10, 20, 10), "biome-generation-capability", false), 128);
+
+        LocatorIndexState legacyState = new LocatorIndexState();
+        legacyState.add(result(LocatorTargetType.FEATURE, "minecraft:ore_diamond",
+                new BlockPos(20, 20, 20), "biome-generation-settings", true), 128);
+
+        assertFalse(findFeature(unverifiedState).isPresent());
+        assertFalse(findFeature(legacyState).isPresent());
+    }
+
     private static LocatorResult result(String id, BlockPos position) {
-        return new LocatorResult(LocatorTargetType.STRUCTURE, id, "minecraft:overworld",
-                position, "locatefixer:vanilla", "test", Instant.now(), true, true, Map.of());
+        return result(LocatorTargetType.STRUCTURE, id, position, "test", true);
+    }
+
+    private static LocatorResult result(LocatorTargetType targetType, String id, BlockPos position,
+                                        String discoverySource, boolean verified) {
+        return new LocatorResult(targetType, id, "minecraft:overworld",
+                position, "locatefixer:vanilla", discoverySource, Instant.now(), true, verified, Map.of());
+    }
+
+    private static java.util.Optional<LocatorIndexEntry> findFeature(LocatorIndexState state) {
+        return state.findNearest(LocatorTargetType.FEATURE, "minecraft:ore_diamond",
+                "minecraft:overworld", BlockPos.ZERO, 1000,
+                TimeUnit.DAYS.toMillis(1), TimeUnit.MINUTES.toMillis(30));
     }
 }

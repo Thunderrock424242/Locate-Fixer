@@ -2,6 +2,7 @@ package com.thunder.locatefixer;
 
 import com.thunder.locatefixer.backend.LocatorBackendRegistry;
 import com.thunder.locatefixer.backend.VanillaLocatorBackend;
+import com.thunder.locatefixer.cache.LocatorResultMemoryCache;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.integration.LocateIntegrationRegistry;
 import com.thunder.locatefixer.job.LocateJobManager;
@@ -14,6 +15,7 @@ public final class LocateRuntime {
     private static final LocateIntegrationRegistry INTEGRATIONS = new LocateIntegrationRegistry();
     private static final AdaptiveSearchPlanner PLANNER = new AdaptiveSearchPlanner();
     private static final SearchHistoryTracker SEARCH_HISTORY = new SearchHistoryTracker();
+    private static final LocatorResultMemoryCache PROVIDER_CACHE = new LocatorResultMemoryCache();
     private static final LocateJobManager JOBS = new LocateJobManager(1, 32, 120);
     private static boolean initialized;
 
@@ -57,6 +59,10 @@ public final class LocateRuntime {
         return JOBS;
     }
 
+    public static LocatorResultMemoryCache providerCache() {
+        return PROVIDER_CACHE;
+    }
+
     public static boolean shouldInterceptVanillaLocate() {
         return !LocateFixerConfig.SERVER.enableAsyncLocatorConflictMode.get()
                 || !INTEGRATIONS.detected("async_locator_refined");
@@ -64,5 +70,6 @@ public final class LocateRuntime {
 
     public static void shutdown() {
         JOBS.shutdown();
+        PROVIDER_CACHE.clear();
     }
 }

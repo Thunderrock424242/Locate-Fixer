@@ -11,6 +11,7 @@ import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -42,13 +43,20 @@ public final class LocateJobManager {
         job.cancellationToken().setTimeoutSeconds(timeoutSeconds);
         jobs.put(request.jobId(), job);
         trimHistory();
+        FutureTask<Void> future = new FutureTask<>(() -> {
+            execute(job, task);
+            return null;
+        });
+        // Publish ownership before execution so a very fast task cannot finish and
+        // remove itself before the future is visible in this map.
+        futures.put(request.jobId(), future);
         try {
-            Future<?> future = executor.submit(() -> execute(job, task));
-            futures.put(request.jobId(), future);
+            executor.execute(future);
             return Submission.accepted(job);
         } catch (RejectedExecutionException rejected) {
             activeBySource.remove(request.sourceKey(), request.jobId());
             jobs.remove(request.jobId());
+            futures.remove(request.jobId(), future);
             return Submission.rejected("The locate queue is full. Try again after another search finishes.");
         }
     }
@@ -90,7 +98,7 @@ public final class LocateJobManager {
         ThreadPoolExecutor current = executor;
         long active = activeBySource.size();
         return new Diagnostics(current.getCorePoolSize(), current.getQueue().size(),
-                current.getQueue().remainingCapacity(), active, jobs.size(), timeoutSeconds);
+                current.getQueue().remainingCapacity(), active, jobs.size(), futures.size(), timeoutSeconds);
     }
 
     public synchronized void reconfigure(int workers, int queueCapacity, int timeoutSeconds) {
@@ -190,6 +198,7 @@ public final class LocateJobManager {
                               int remainingQueueCapacity,
                               long activeJobs,
                               int retainedJobs,
+                              int trackedFutures,
                               int timeoutSeconds) {
     }
 

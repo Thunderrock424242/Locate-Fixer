@@ -13,7 +13,7 @@ Fabric reloads this file on server startup and `/reload`. Forge and NeoForge use
 | `biomeSampleRadiusMultiplier` | `1.5` | 1.0–8.0 | Biome sample-radius scaling. |
 | `biomeSampleStepMultiplier` | `1.75` | 1.0–8.0 | Biome step scaling. |
 | `adaptiveSearchEnabled` | `true` | boolean | Uses distance history to skip already-covered rings. Disable to use configured rings exactly. |
-| `enableFeatureLocateCommand` | `false` | boolean | Enables operator-only `/locate feature`. |
+| `enableFeatureLocateCommand` | `false` | boolean | Enables operator-only feature-capable-biome lookup. It does not verify an exact placed feature. |
 
 The legacy nearest toggle remains `enableNearestCommand = false`. POI range remains `poiSearchRadius = 256` with a safe range of 16–4096.
 
@@ -45,7 +45,7 @@ The index is standard Minecraft SavedData at `world/data/locatefixer_index.dat`.
 | `persistentIndexExpiryDays` / `index.expiryDays` | `90` | 1–3650 | Maximum age for stable structure and biome discoveries. |
 | `persistentIndexVerificationMinutes` / `index.verificationMinutes` | `30` | 1–10080 | Re-search window for POI, feature, and custom entries that may change. |
 
-Malformed records are skipped during load. Unknown newer schema versions are ignored instead of being rewritten.
+Only verified results are written or served. Predictive results from the built-in feature-capability lookup are not persisted. Malformed records are skipped during load, and legacy predictive feature entries are retained on disk but ignored. Unknown newer schema versions are ignored instead of being rewritten.
 
 ## Teleport
 

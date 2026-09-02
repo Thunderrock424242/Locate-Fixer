@@ -85,6 +85,13 @@ Provider IDs must be stable, lowercase, namespaced IDs. Duplicate IDs are reject
 - Return positions in the declared result dimension and within the supplied maximum radius. Locate Unbound rejects out-of-scope results.
 - Use `verified=false` or `generated=false` when the provider only predicts a location. Do not claim generation from placement metadata alone.
 
+### Cache policy and verification
+
+- `NONE` keeps results only on the completed job.
+- `MEMORY` allows a bounded, short-lived process cache using the configured cache lifetime, origin granularity, and entry cap.
+- `PERSISTENT` includes memory reuse and permits world-index writes.
+- Only `verified=true` results may enter the persistent world index, even when the provider requests `PERSISTENT`. Predictive or unverified results may still use memory caching when the policy allows it.
+
 `/xlocate customstructure <id>` suggests unified `CUSTOM` and `STRUCTURE` providers as well as legacy providers.
 
 ## Backend API
@@ -115,6 +122,8 @@ Legacy callbacks always run on the server thread. Keep them fast and bounded.
 
 ## Persistent index behavior
 
-Successful normal and provider searches are normalized to `LocatorResult` and written to Minecraft SavedData when indexing is enabled. Providers do not need to write `locatefixer_index.dat` directly. Mutable POI, feature, and custom results use the configured verification window before a provider search is required again.
+Successful normal and provider searches are normalized to `LocatorResult`. Verified results are written to Minecraft SavedData when indexing and the provider's persistent policy are enabled. Providers do not need to write `locatefixer_index.dat` directly. Mutable verified POI, feature, and custom results use the configured verification window before a provider search is required again.
+
+The built-in `/locate feature` command reports a feature-capable biome rather than an exact placed-feature occurrence. Its result is marked ungenerated and unverified, is not made clickable, and is never written to the persistent index.
 
 The index is an implementation detail, not a storage API. Its schema may migrate between releases while preserving the `locatefixer_index.dat` file.

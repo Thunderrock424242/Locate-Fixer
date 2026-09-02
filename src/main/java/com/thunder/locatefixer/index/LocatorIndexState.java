@@ -95,6 +95,10 @@ public final class LocatorIndexState {
         LocatorIndexEntry best = null;
         long bestDistanceSq = Long.MAX_VALUE;
         for (LocatorIndexEntry entry : entries.values()) {
+            // Older development builds could persist predictive feature-biome
+            // results as verified. Preserve the data file but never serve those
+            // records as exact discoveries.
+            if (!entry.verified() || "biome-generation-settings".equals(entry.discoverySource())) continue;
             if (entry.targetType() != targetType
                     || !entry.targetId().equals(targetId)
                     || !entry.dimensionId().equals(dimensionId)) continue;

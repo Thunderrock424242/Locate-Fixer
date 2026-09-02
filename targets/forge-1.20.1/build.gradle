@@ -8,10 +8,6 @@ ext.targetJavaVersion = 17
 
 apply from: rootProject.file('gradle/target-common.gradle')
 
-repositories {
-    maven { url = 'https://maven.enginehub.org/repo/' }
-}
-
 legacyForge {
     version = "${rootProject.minecraft_1201}-${rootProject.forge_1201}"
     addModdingDependenciesTo(sourceSets.test)
@@ -37,7 +33,6 @@ mixin {
 }
 
 dependencies {
-    compileOnly("com.sk89q.worldedit:worldedit-core:${rootProject.worldedit_1201}") { transitive = false }
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 }
 

@@ -84,6 +84,7 @@ public final class LocateControlCommand {
                 + " | active " + jobs.activeJobs()
                 + " | queued " + jobs.queuedJobs()
                 + "/" + (jobs.queuedJobs() + jobs.remainingQueueCapacity())
+                + " | tracked futures " + jobs.trackedFutures()
                 + " | timeout " + jobs.timeoutSeconds() + "s"), false);
         source.sendSuccess(() -> Component.literal("Configured max radius "
                 + LocateFixerConfig.SERVER.locateRings.get().stream().mapToInt(Integer::intValue).max().orElse(0)

@@ -8,16 +8,11 @@ ext.targetJavaVersion = 17
 
 apply from: rootProject.file('gradle/target-common.gradle')
 
-repositories {
-    maven { url = 'https://maven.enginehub.org/repo/' }
-}
-
 dependencies {
     minecraft "com.mojang:minecraft:${rootProject.minecraft_1201}"
     mappings loom.officialMojangMappings()
     modImplementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_api_1201}"
-    compileOnly("com.sk89q.worldedit:worldedit-core:${rootProject.worldedit_1201}") { transitive = false }
 }
 
 loom {

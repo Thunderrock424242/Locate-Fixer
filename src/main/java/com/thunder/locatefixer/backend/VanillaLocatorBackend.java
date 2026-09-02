@@ -36,6 +36,9 @@ public final class VanillaLocatorBackend implements LocatorBackend {
         for (SearchStage stage : plan.stages()) {
             cancellationToken.throwIfCancelled();
             Optional<LocatorResult> result = operation.search(stage, cancellationToken);
+            // A live Minecraft lookup can outlast the cooperative deadline. Never
+            // accept a result until cancellation and timeout are checked again.
+            cancellationToken.throwIfCancelled();
             if (result.isPresent()) {
                 return result;
             }

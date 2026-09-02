@@ -69,7 +69,8 @@ public final class LocateFixerFeatureCommand {
         }
 
         BlockPos origin = BlockPos.containing(source.getPosition());
-        source.sendSuccess(() -> Component.literal("🔍 Locating feature '" + featureId + "'..."), false);
+        source.sendSuccess(() -> Component.literal("🔍 Finding the nearest biome capable of generating feature '"
+                + featureId + "'..."), false);
 
         AsyncLocateHandler.locateFeatureAsync(source, featureId.toString(), origin, level,
                 (searchRings, cancellationToken) -> findNearestFeatureBiome(
@@ -96,6 +97,8 @@ public final class LocateFixerFeatureCommand {
                     64
             );
             if (match != null) {
+                // Generation settings establish biome capability only. They do not
+                // prove that a placed-feature instance exists at this coordinate.
                 return Optional.of(match.getFirst());
             }
         }

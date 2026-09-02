@@ -16,7 +16,6 @@ if (rootProject.hasProperty('terrablenderTest')) {
 }
 
 repositories {
-    maven { url = 'https://maven.enginehub.org/repo/' }
     if (rootProject.hasProperty('terrablenderTest')) {
         maven { url = 'https://maven.minecraftforge.net/' }
     }
@@ -51,8 +50,6 @@ neoForge {
 }
 
 dependencies {
-    compileOnly("com.sk89q.worldedit:worldedit-core:${rootProject.worldedit_1211}") { transitive = false }
-
     if (rootProject.hasProperty('terrablenderTest')) {
         terrablenderTestRuntime 'com.github.glitchfiend:GlitchCore-neoforge:1.21.1-2.1.0.0'
         terrablenderTestRuntime 'com.github.glitchfiend:TerraBlender-neoforge:1.21.1-4.1.0.8'

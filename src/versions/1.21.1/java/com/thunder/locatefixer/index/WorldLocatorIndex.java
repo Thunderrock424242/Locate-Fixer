@@ -49,7 +49,8 @@ public final class WorldLocatorIndex extends SavedData {
     }
 
     public void record(LocatorResult result) {
-        if (LocateFixerConfig.SERVER.persistentIndexEnabled.get()
+        if (result.verified()
+                && LocateFixerConfig.SERVER.persistentIndexEnabled.get()
                 && state.add(result, LocateFixerConfig.SERVER.persistentIndexMaxEntries.get())) {
             setDirty();
         }
