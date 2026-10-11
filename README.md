@@ -74,3 +74,11 @@ With JDK 21 available on Windows:
 ```
 
 Production JARs are collected in `build/distributions/`; source JARs are not installable mods. Shared sources live under `src/main/`, with loader and Minecraft adapters under `src/platforms/` and `src/versions/`. This branch is an implementation candidate; automated build evidence does not establish gameplay, multiplayer, modpack or comparative performance acceptance.
+
+For the optional Forge 1.20.1 / Ixeris 4.6.5 development client:
+
+```powershell
+.\gradlew.bat :forge-1.20.1:runClientIxeris -PixerisTest --no-daemon --console=plain
+```
+
+This profile uses Forge 47.4.20 and a separate game directory under `build/smoke/forge-ixeris-client/`. See the [issue #89 reproduction notes](docs/ixeris-issue-89.md) for the automated disposable-world probe and observed results. Ixeris is a development runtime dependency only; normal builds keep Forge 47.4.10 and do not include it.

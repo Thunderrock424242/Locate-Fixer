@@ -1,0 +1,7 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+[[mods]]
+modId="locatefixer_ixeris_probe"
+version="1.0"
+displayName="Disposable Ixeris reproduction probe"
