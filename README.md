@@ -25,7 +25,7 @@ These retain vanilla argument parsing and operator permission level 2:
 /locate poi minecraft:home
 ```
 
-Ordinary locate reports coordinates and distance. Clicking coordinates inserts them into the chat command line so you can edit or copy them; it does not execute a command or start teleport preparation. To request safe travel explicitly, a player can add `teleport`:
+Ordinary locate reports coordinates and distance. Clicking coordinates fills the chat command line with `/tp @s <x> <y> <z>`; press Enter to teleport using vanilla `/tp`. To request Locate Fixer's safe landing preparation, a player can add `teleport` to the locate command:
 
 ```text
 /locate structure minecraft:stronghold teleport

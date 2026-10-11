@@ -1,48 +1,55 @@
 # Changelog
 
-## 4.0.0 development — Locate Fixer safety and correctness refactor
+## 4.0.0 — Development candidate
 
-Based on the `1.21.1` development architecture. All features use Locate Fixer branding. The technical `locatefixer` ID, Java APIs, configuration keys and world index filename are preserved.
+Changes since `3.2.0`. This update focuses on reliable locating, bounded search resources, world safety and a simpler player workflow.
 
-### Search
+### Locate and teleport
 
-- Preserve every nearby configured stage; success history adds useful radii rather than skipping closer terrain. Failure history is scoped to exact origin and world lifetime.
-- Treat persistent discoveries as candidates that require live search, with spatial lookup, bounded load/pruning, restart verification, datapack invalidation and read-only preservation of unknown future schemas.
-- Scope memory results to exact XYZ, target, world/dimension, registry lifetime and search radius. Bound expiry/eviction and clear all lifecycle owners.
-- Convert structure block limits to Minecraft placement-ring inputs and reject results beyond the requested bound. Keep native biome sampling and generation ownership.
-- Remove extra chunk generation used only to refine normal structure output.
-- Distinguish unavailable, not found, cancelled, timed out and failed jobs.
+- Coordinate links fill the chat command line with `/tp @s <x> <y> <z>`. Press Enter to teleport using vanilla `/tp`; clicking alone does not execute it.
+- Added an explicit `teleport` suffix for `/locate structure`, `/locate biome` and `/locate poi` to request safe landing preparation.
+- Added `/locate status` and `/locate cancel` for active searches and travel preparation.
+- Replaced terrain carving with bounded searches for naturally safe floors and headroom. Safe travel checks collision, fluids, hazards and the world border, then revalidates before moving the player. It never changes blocks and cancels if no safe landing exists.
+- Safe travel waits for FULL chunks and uses independent temporary tickets, with cleanup after completion, cancellation, disconnect, dimension change, timeout, failure and shutdown.
+- New configurations default to no teleport countdown. Existing configured countdowns are respected.
+- Removed the global `/tp` interception. Safe travel is requested explicitly; ordinary `/tp` keeps vanilla behavior.
 
-### Jobs and performance
+### Search correctness
 
-- Reconfigure one bounded executor instead of accumulating worker pools; cancellation reclaims pending capacity.
-- Bound worker waits for server callbacks and abandon cancelled queued world calls. Never interrupt an already-running generator call or wait on worker futures from the server thread.
-- Ignore late cancelled results, clear shutdown/restart state and cancel disconnected players.
-- Measure actual server-call execution, queue wait and elapsed intervals between ticks overlapping calls. Operator benchmarks also show recent native tick samples with explicit attribution limits.
+- Added nearby-first adaptive planning, a bounded recent-result cache and a persistent world discovery index, enabled by default.
+- Search history can add useful radii without skipping configured nearby stages. Historical failures do not prove closer terrain is empty.
+- Persistent discoveries survive restarts and use dimension-aware spatial lookup. Indexed candidates require live searches before becoming results, so a remembered location cannot automatically hide a closer undiscovered target.
+- Cache entries distinguish exact XYZ origin, target, search radius, world, dimension and registry lifetime. Reload and shutdown clear stale state.
+- Added bounded index loading, pruning and expiry, migration for supported older data, isolation of malformed records and read-only preservation of unknown newer schemas.
+- Corrected conversion of structure search limits to native placement-ring inputs and reject results beyond the requested bound.
+- Removed extra chunk generation used only to refine ordinary structure coordinates. Native structure placement and biome sampling semantics are retained.
+- Search feedback distinguishes targets unavailable in the dimension, no result within the limit, cancellation, timeout and execution errors.
 
-### Safe travel
+### Reliability and operator tools
 
-- Add explicit player-only `teleport` suffixes to native structure, biome and POI arguments.
-- Ordinary locate only reports coordinates; coordinate clicks suggest text. Remove runtime `/tp` interception.
-- Replace carving, forced-chunk sharing and the scheduled teleport executor with read-only natural landing searches on loader ticks.
-- Use unique temporary tickets, actual FULL readiness, bounded operation/ticket/check budgets, underground-first search, collision/border/hazard checks and immediate revalidation.
-- Release tickets after cancellation, disconnect, dimension change, timeout, failure, completion and shutdown; retain failed cleanup ownership for retry.
-- Default countdown to zero while honoring existing configured values. Unsafe legacy hazard flags cannot relax the safe path.
+- Added a shared job manager with a bounded queue, deadlines and cancellation. Reconfiguration reuses one worker pool rather than accumulating executors.
+- Worker waits for server callbacks are bounded and cancellation-aware. Cancelled queued calls are abandoned, late results are ignored and disconnected players' work is cancelled.
+- Minecraft world queries, providers, saved data and teleport operations stay on the server thread. Already-running vanilla generation calls are never forcibly interrupted.
+- Added `/locatefixer diagnostics` and opt-in `/locatefixer benchmark` reporting for job timing, server-call execution, queue waits, cache/index activity and tick intervals.
+- Added unified provider and backend registration APIs with target types, dimension/radius limits, cache policies and cancellation. Existing structure-provider APIs remain available.
+- Preserved native synchronous behavior for RCON and commands with result callbacks, including `/execute store`.
 
-### Scope and compatibility
+### Compatibility and builds
 
-- Use Locate Fixer throughout documentation, mod descriptions, logs, errors, worker names and logo paths. Administrative commands use the single `/locatefixer` root.
-- Remove schematic tracking/commands, random dimension travel and give/summon/effect correction from the runtime. Retain public compatibility helpers and document replacements.
-- Keep nearest/provider/feature-capability tools optional and diagnostics operator-invoked.
-- Preserve conflict yielding to Async Locator Refined and use vanilla registries/generator hooks for other worldgen mods.
-- Investigate issue #89 from its attached crash: the old 3.1.0 Forge artifact reported a missing injection target/refmap. This is not evidence of an Ixeris thread conflict.
-- Simplify newly generated Fabric configuration and document retained loader-managed legacy keys.
+- Consolidated development and GitHub Actions on `main`, retaining all four targets: Forge and Fabric for Minecraft 1.20.1, and NeoForge and Fabric for Minecraft 1.21.1.
+- Production artifact collection selects only the current version's installable JARs.
+- Unified messages, logs, descriptions, worker names and logo paths under Locate Fixer. Administrative commands use the single `/locatefixer` root.
+- Preserve the `locatefixer` mod ID, Java packages, configuration filename/keys and `world/data/locatefixer_index.dat` path. New Fabric configurations are simplified; retained legacy settings are documented.
+- Added detection that yields overlapping native locate ownership to Async Locator Refined. Modded searches use active registries and vanilla generator hooks; compass mods retain their own searches.
+- Removed active WorldEdit schematic tracking/commands, random dimension travel and unrelated give/summon/effect correction, along with WorldEdit build dependencies. Deprecated public helpers remain available for compatibility.
+- Added an optional Forge 47.4.20 / Ixeris 4.6.5 development profile and disposable-world reproduction probe. Ixeris is not bundled in normal builds.
+- Verified current Forge refmap packaging while investigating issue #89. The old 3.1.0 Forge artifact declared a missing refmap; the current minimal Ixeris profile passed world creation and a biome locate. The original modpack crash remains unverified.
 
-### Validation
+### Validation and upgrade notes
 
-See [the validation report](docs/4.0-validation.md) for exact test/build/artifact evidence. Regression tests cover planner/index nearest invariants, exact cache scope, provider coordinate overflow, cancellation/reconfiguration/restart, bounded owner-thread waits, Brigadier attachment, tick telemetry, natural landing fixtures and independent ticket cleanup.
+The comparison baseline is the last `3.2.0` source commit, `f245b6b`. See [the validation report](docs/4.0-validation.md), [configuration guide](CONFIGURATION.md) and [API migration notes](API_DOCUMENTATION.md) for build evidence and integration changes.
 
-Automated checks do not establish live gameplay, multiplayer, custom dimension/modpack compatibility or comparative MSPT/CPU/memory results. These remain release acceptance work.
+Automated regression coverage includes search/cache/index correctness, cancellation and lifecycle cleanup, command permissions, bounded server waits, tick telemetry, natural landing fixtures and independent ticket ownership. Live player travel, multiplayer, the original issue-89 modpack and comparative performance acceptance remain pending. An already-running vanilla generation call can still stall a server tick; no overall speedup is claimed.
 
 ## 3.1.0
 

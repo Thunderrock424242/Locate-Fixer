@@ -23,14 +23,14 @@ public class LocateResultHelper {
                 ? Mth.floor(Mth.sqrt((float) from.distSqr(to)))
                 : Mth.floor(distXZ(from, to));
         String yText = absoluteY ? String.valueOf(to.getY()) : "~";
-        String coordinateText = to.getX() + " " + yText + " " + to.getZ();
+        String teleportCommand = "/tp @s " + to.getX() + " " + yText + " " + to.getZ();
         Component coords = ComponentUtils.wrapInSquareBrackets(
                 Component.translatable("chat.coordinates", to.getX(), yText, to.getZ()))
                 .withStyle(style -> style
                         .withColor(ChatFormatting.GREEN)
-                        .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, coordinateText))
+                        .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, teleportCommand))
                         .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-                                Component.literal("Insert coordinates into chat"))));
+                                Component.literal("Teleport to coordinates (press Enter)"))));
         Component message = Component.translatable(label, name, coords, distance);
         source.sendSuccess(() -> message, false);
     }

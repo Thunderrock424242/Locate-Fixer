@@ -80,7 +80,7 @@ Provider IDs must be stable, lowercase, namespaced IDs. Duplicate IDs are reject
 - `cachePolicy()` declares whether results are suitable for memory or persistent reuse.
 - `threadSafety()` defaults to `SERVER_THREAD_ONLY`. The declaration remains supported, but the current integration conservatively invokes all providers on the owning server thread because they receive a live `ServerLevel`. It does not move world access off-thread based on metadata alone.
 - `estimatedSearchCost()` is a relative 0–100 planning hint.
-- `safelyTeleportable()` defaults to true. When false, results use plain coordinates. Provider output never grants automatic travel or intercepts `/tp`; ordinary coordinate links insert coordinate text into the chat command line without executing a command.
+- `safelyTeleportable()` defaults to true. When false, results use plain coordinates. Provider output never grants automatic travel or intercepts `/tp`; ordinary coordinate links suggest `/tp @s <x> <y> <z>` in the chat command line. Pressing Enter runs vanilla teleport; safe landing preparation uses the explicit `teleport` suffix instead.
 - Check `LocateCancellationToken` during bounded loops. Cancellation is cooperative; do not interrupt a world call or retain the supplied level.
 - Return positions in the declared result dimension and within the supplied maximum radius. Locate Fixer rejects out-of-scope results.
 - Use `verified=false` or `generated=false` when the provider only predicts a location. Do not claim generation from placement metadata alone.

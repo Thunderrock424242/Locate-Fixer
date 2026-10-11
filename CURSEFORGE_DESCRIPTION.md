@@ -2,7 +2,7 @@
 
 Locate Fixer improves Minecraft's familiar `/locate structure`, `/locate biome` and `/locate poi` workflow with nearby-first search planning, a bounded queue, recent-result caches and a persistent discovery index.
 
-Ordinary locate reports coordinates. Add `teleport` explicitly to request safe player travel:
+Ordinary locate reports coordinates. Click the coordinates to fill the chat command line with `/tp @s <x> <y> <z>`, then press Enter to teleport using vanilla `/tp`. Add `teleport` to the locate command to request safe landing preparation:
 
 ```text
 /locate structure minecraft:stronghold teleport
