@@ -3,6 +3,7 @@ package com.thunder.locatefixer.util;
 import com.mojang.brigadier.ParseResults;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.thunder.locatefixer.config.LocateFixerConfig;
+import com.thunder.locatefixer.LocateRuntime;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -33,7 +34,13 @@ public final class CommandErrorFixer {
     }
 
     public static boolean handle(ParseResults<CommandSourceStack> parseResults) {
-        if (!isEnabled()) {
+        String command = parseResults.getReader().getString();
+        if (!command.equals("locate") && !(command.startsWith("locate")
+                && command.length() > 6 && Character.isWhitespace(command.charAt(6)))) {
+            return false;
+        }
+        CommandSourceStack source = parseResults.getContext().getSource();
+        if (!source.hasPermission(2) || !isEnabled() || !LocateRuntime.shouldInterceptVanillaLocate()) {
             return false;
         }
 
@@ -42,8 +49,6 @@ public final class CommandErrorFixer {
             return false;
         }
 
-        CommandSourceStack source = parseResults.getContext().getSource();
-        String command = parseResults.getReader().getString();
         if (sendImprovedError(source, command)) {
             return true;
         }
@@ -54,7 +59,7 @@ public final class CommandErrorFixer {
             CommandSourceStack source,
             ResourceOrTagKeyArgument.Result<Structure> structure
     ) {
-        if (!isEnabled()) {
+        if (!isEnabled() || !LocateRuntime.shouldInterceptVanillaLocate()) {
             return false;
         }
 
@@ -94,16 +99,7 @@ public final class CommandErrorFixer {
             return false;
         }
 
-        String root = tokens.get(0).value();
-        return switch (root) {
-            case "locate" -> handleLocate(source, command, tokens);
-            case "summon" -> handleRegistryArgument(source, command, tokens, 1, "entity",
-                    Registries.ENTITY_TYPE, token -> token.value());
-            case "give" -> handleRegistryArgument(source, command, tokens, 2, "item",
-                    Registries.ITEM, CommandErrorFixer::resourcePart);
-            case "effect" -> handleEffect(source, command, tokens);
-            default -> false;
-        };
+        return tokens.get(0).value().equals("locate") && handleLocate(source, command, tokens);
     }
 
     private static boolean handleLocate(CommandSourceStack source, String command, List<Token> tokens) {
@@ -120,31 +116,12 @@ public final class CommandErrorFixer {
                     Registries.STRUCTURE, token -> token.value());
             case "poi" -> handleRegistryArgument(source, command, tokens, 2, "point of interest",
                     Registries.POINT_OF_INTEREST_TYPE, token -> token.value());
+            case "feature", "dimension", "nearest", "custom", "schematic", "status", "cancel" -> false;
             default -> {
-                String suggestion = closestLiteral(type.value(), List.of("structure", "biome", "poi", "feature", "dimension", "nearest"));
+                String suggestion = closestLiteral(type.value(), List.of("structure", "biome", "poi"));
                 yield sendLiteralSuggestion(source, "locate target type", type.value(), suggestion, replaceToken(command, type, suggestion));
             }
         };
-    }
-
-    private static boolean handleEffect(CommandSourceStack source, String command, List<Token> tokens) {
-        if (tokens.size() == 1) {
-            sendMissingSuggestion(source, "effect action", "give", "/effect give ");
-            return true;
-        }
-
-        Token action = tokens.get(1);
-        if (!action.value().equals("give") && !action.value().equals("clear")) {
-            String suggestion = closestLiteral(action.value(), List.of("give", "clear"));
-            return sendLiteralSuggestion(source, "effect action", action.value(), suggestion, replaceToken(command, action, suggestion));
-        }
-
-        if (tokens.size() <= 3) {
-            return false;
-        }
-
-        return handleRegistryArgument(source, command, tokens, 3, "effect",
-                Registries.MOB_EFFECT, token -> token.value());
     }
 
     private static <T> boolean handleRegistryArgument(
@@ -322,20 +299,6 @@ public final class CommandErrorFixer {
                 .replace("_", "")
                 .replace("-", "")
                 .replace("/", "");
-    }
-
-    private static String resourcePart(Token token) {
-        String value = token.value();
-        int componentStart = value.indexOf('[');
-        int legacyNbtStart = value.indexOf('{');
-        int end = value.length();
-        if (componentStart >= 0) {
-            end = Math.min(end, componentStart);
-        }
-        if (legacyNbtStart >= 0) {
-            end = Math.min(end, legacyNbtStart);
-        }
-        return value.substring(0, end);
     }
 
     private static String replaceToken(String command, Token token, String replacement) {

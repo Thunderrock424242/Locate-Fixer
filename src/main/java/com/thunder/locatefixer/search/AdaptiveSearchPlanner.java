@@ -5,9 +5,8 @@ import com.thunder.locatefixer.api.LocatorTargetType;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Converts legacy configured rings into a bounded plan. The planner never exceeds the
@@ -31,23 +30,17 @@ public final class AdaptiveSearchPlanner {
         boolean hasHints = context.previousSuccessDistance() > 0
                 || context.previouslyFailedRadius() > 0
                 || context.rareTarget();
-        Set<Integer> selected = new LinkedHashSet<>();
-        int minimumUsefulRadius = Math.max(0, context.previouslyFailedRadius());
-
-        if (context.previousSuccessDistance() > 0) {
-            minimumUsefulRadius = Math.max(minimumUsefulRadius,
-                    Math.max(1, context.previousSuccessDistance() / 2));
-        }
-        if (context.rareTarget() && validRings.length > 2) {
-            minimumUsefulRadius = Math.max(minimumUsefulRadius, validRings[1]);
-        }
-
+        // History describes cost and useful bounds, not proof that nearer regions
+        // can be omitted. Even an exact-origin failed biome sample is incomplete.
+        TreeSet<Integer> selected = new TreeSet<>();
         for (int radius : validRings) {
-            if (radius > minimumUsefulRadius) {
-                selected.add(radius);
-            }
+            selected.add(radius);
         }
-        selected.add(validRings[validRings.length - 1]);
+        if (context.previousSuccessDistance() > 0
+                && context.previousSuccessDistance() <= request.maxRadius()) {
+            selected.add(context.previousSuccessDistance());
+        }
+        selected.add(request.maxRadius());
 
         List<SearchStage> stages = new ArrayList<>();
         for (int radius : selected) {
@@ -55,11 +48,9 @@ public final class AdaptiveSearchPlanner {
                     ? biomeRadiusMultiplier : 1.0D;
             double stepMultiplier = request.targetType() == LocatorTargetType.BIOME
                     ? biomeStepMultiplier : 1.0D;
-            String reason = radius <= context.previouslyFailedRadius()
-                    ? "verification boundary"
-                    : hasHints ? "adaptive escalation" : "configured fallback";
+            String reason = hasHints ? "adaptive escalation" : "configured fallback";
             stages.add(new SearchStage(radius, radiusMultiplier, stepMultiplier, reason));
         }
-        return new SearchPlan(stages, validRings[validRings.length - 1], hasHints);
+        return new SearchPlan(stages, request.maxRadius(), hasHints);
     }
 }

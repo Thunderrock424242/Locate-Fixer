@@ -1,7 +1,6 @@
 package com.thunder.locatefixer.mixin;
 
 import com.thunder.locatefixer.LocateRuntime;
-import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import com.thunder.locatefixer.util.CommandErrorFixer;
 import net.minecraft.commands.CommandSourceStack;
@@ -22,21 +21,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(LocateCommand.class)
 public class LocateCommandMixin {
 
-    private static boolean isLocateFeaturesEnabled() {
-        try {
-            return LocateFixerConfig.SERVER.locateRings.get() != null;
-        } catch (IllegalStateException ignored) {
-            return true;
-        }
-    }
-
     @Inject(method = "locateStructure", at = @At("HEAD"), cancellable = true)
     private static void locatefix$asyncLocateStructure(
             CommandSourceStack source,
             ResourceOrTagKeyArgument.Result<Structure> structure,
             CallbackInfoReturnable<Integer> cir
     ) {
-        if (!isLocateFeaturesEnabled() || !LocateRuntime.shouldInterceptVanillaLocate()) {
+        if (!LocateRuntime.shouldInterceptVanillaLocate()
+                || com.thunder.locatefixer.util.NativeLocatePolicy.hasResultCallback(source)) {
             return;
         }
         ServerLevel level = source.getLevel();
@@ -48,7 +40,7 @@ public class LocateCommandMixin {
         }
 
         AsyncLocateHandler.locateStructureAsync(source, structure, origin, level);
-        cir.setReturnValue(1); // fake immediate return
+        cir.setReturnValue(1); // Accepted for asynchronous execution.
     }
 
     @Inject(method = "locateBiome", at = @At("HEAD"), cancellable = true)
@@ -57,14 +49,15 @@ public class LocateCommandMixin {
             ResourceOrTagArgument.Result<Biome> biome,
             CallbackInfoReturnable<Integer> cir
     ) {
-        if (!isLocateFeaturesEnabled() || !LocateRuntime.shouldInterceptVanillaLocate()) {
+        if (!LocateRuntime.shouldInterceptVanillaLocate()
+                || com.thunder.locatefixer.util.NativeLocatePolicy.hasResultCallback(source)) {
             return;
         }
         ServerLevel level = source.getLevel();
         BlockPos origin = BlockPos.containing(source.getPosition());
 
         AsyncLocateHandler.locateBiomeAsync(source, biome, origin, level);
-        cir.setReturnValue(1); // fake return — actual logic runs async
+        cir.setReturnValue(1); // Accepted for asynchronous execution.
     }
 
     @Inject(method = "locatePoi", at = @At("HEAD"), cancellable = true)
@@ -73,13 +66,14 @@ public class LocateCommandMixin {
             ResourceOrTagArgument.Result<PoiType> poiType,
             CallbackInfoReturnable<Integer> cir
     ) {
-        if (!isLocateFeaturesEnabled() || !LocateRuntime.shouldInterceptVanillaLocate()) {
+        if (!LocateRuntime.shouldInterceptVanillaLocate()
+                || com.thunder.locatefixer.util.NativeLocatePolicy.hasResultCallback(source)) {
             return;
         }
         ServerLevel level = source.getLevel();
         BlockPos origin = BlockPos.containing(source.getPosition());
 
         AsyncLocateHandler.locatePoiAsync(source, poiType, origin, level);
-        cir.setReturnValue(1); // fake return — actual logic runs async
+        cir.setReturnValue(1); // Accepted for asynchronous execution.
     }
 }

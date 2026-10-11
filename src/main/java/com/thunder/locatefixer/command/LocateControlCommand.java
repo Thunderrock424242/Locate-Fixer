@@ -6,17 +6,21 @@ import com.thunder.locatefixer.LocateFixerMod;
 import com.thunder.locatefixer.LocateRuntime;
 import com.thunder.locatefixer.backend.LocatorBackend;
 import com.thunder.locatefixer.config.LocateFixerConfig;
+import com.thunder.locatefixer.diagnostics.TickTimingSummary;
 import com.thunder.locatefixer.integration.LocateIntegrationRegistry;
 import com.thunder.locatefixer.job.LocateJobManager;
 import com.thunder.locatefixer.job.LocateJobSnapshot;
+import com.thunder.locatefixer.job.LocateJobSubmissions;
 import com.thunder.locatefixer.index.WorldLocatorIndex;
 import com.thunder.locatefixer.teleport.LocateTeleportHandler;
+import com.thunder.locatefixer.util.ServerTickMetrics;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Locale;
 
 import static net.minecraft.commands.Commands.literal;
 
@@ -27,6 +31,7 @@ public final class LocateControlCommand {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(literal("locate")
+                .requires(source -> source.hasPermission(2))
                 .then(literal("status").executes(context -> status(context.getSource())))
                 .then(literal("cancel").executes(context -> cancel(context.getSource()))));
         dispatcher.register(buildAdminRoot("locateunbound"));
@@ -46,22 +51,31 @@ public final class LocateControlCommand {
     }
 
     private static int status(CommandSourceStack source) {
-        Optional<LocateJobSnapshot> latest = LocateRuntime.jobs().latestFor(source.getTextName());
+        Optional<LocateJobSnapshot> latest = LocateRuntime.jobs().latestFor(LocateJobSubmissions.sourceKey(source));
         if (latest.isEmpty()) {
-            source.sendSuccess(() -> Component.literal("Locate Unbound: no recent locate request."), false);
+            source.sendSuccess(() -> Component.literal("No recent locate request."), false);
             return 0;
         }
         LocateJobSnapshot job = latest.get();
         long elapsedMs = elapsedMillis(job);
-        source.sendSuccess(() -> Component.literal("Locate Unbound job "
-                + shortId(job.request().jobId().toString()) + ": " + job.status()
-                + " | " + job.progressPercent() + "% | " + job.progressMessage()
-                + " | backend " + job.backendId() + " | " + elapsedMs + " ms"), false);
+        String message = switch (job.status()) {
+            case QUEUED -> "Locate search queued.";
+            case INDEX_LOOKUP, SEARCHING, BACKEND_SEARCH -> "Searching for " + job.request().targetId()
+                    + " (" + elapsedMs / 1000 + "s elapsed).";
+            case FOUND -> "Locate search completed.";
+            case NOT_FOUND -> "Target not found within the search distance.";
+            case UNAVAILABLE -> "The requested target cannot generate in this dimension.";
+            case FAILED -> "Locate search failed" + (job.failureMessage() == null || job.failureMessage().isBlank()
+                    ? "." : ": " + job.failureMessage());
+            case CANCELLED -> "Locate search cancelled.";
+            case TIMED_OUT -> "Locate search timed out.";
+        };
+        source.sendSuccess(() -> Component.literal(message), false);
         return 1;
     }
 
     private static int cancel(CommandSourceStack source) {
-        boolean searchCancelled = LocateRuntime.jobs().cancelFor(source.getTextName());
+        boolean searchCancelled = LocateRuntime.jobs().cancelFor(LocateJobSubmissions.sourceKey(source));
         boolean teleportCancelled = false;
         try {
             teleportCancelled = LocateTeleportHandler.cancelFor(source.getPlayerOrException());
@@ -70,7 +84,7 @@ public final class LocateControlCommand {
         }
         boolean cancelled = searchCancelled || teleportCancelled;
         if (cancelled) {
-            source.sendSuccess(() -> Component.literal("Locate Unbound request cancelled."), false);
+            source.sendSuccess(() -> Component.literal("Locate request cancelled."), false);
             return 1;
         }
         source.sendFailure(Component.literal("No active locate search or teleport to cancel."));
@@ -114,19 +128,40 @@ public final class LocateControlCommand {
                     "Benchmark capture is disabled. Enable benchmark.enabled in the server config."));
             return 0;
         }
-        Optional<LocateJobSnapshot> latest = LocateRuntime.jobs().latestFor(source.getTextName());
+        Optional<LocateJobSnapshot> latest = LocateRuntime.jobs().latestFor(LocateJobSubmissions.sourceKey(source));
         if (latest.isEmpty()) {
             source.sendFailure(Component.literal("Run a locate search first, then use this command."));
             return 0;
         }
         LocateJobSnapshot job = latest.get();
-        source.sendSuccess(() -> Component.literal("Locate Unbound benchmark "
+        source.sendSuccess(() -> Component.literal("Locate Fixer benchmark "
                 + shortId(job.request().jobId().toString())), false);
         source.sendSuccess(() -> Component.literal("Target " + job.request().targetType() + " "
                 + job.request().targetId() + " | dimension " + job.request().dimensionId()), false);
         source.sendSuccess(() -> Component.literal("Backend " + job.backendId()
                 + " | status " + job.status() + " | wall time " + elapsedMillis(job)
                 + " ms | worker " + job.workerThread()), false);
+        source.sendSuccess(() -> Component.literal("Server world calls " + counter(job, "server_calls")
+                + " | total call time " + nanosToMillis(counter(job, "server_call_nanos"))
+                + " ms | longest call " + nanosToMillis(counter(job, "server_call_max_nanos"))
+                + " ms | server queue wait " + nanosToMillis(counter(job, "server_wait_nanos")) + " ms"), false);
+        source.sendSuccess(() -> Component.literal("These timings measure locate world calls, not whole-server MSPT."), false);
+        source.sendSuccess(() -> Component.literal("Tick intervals overlapping world calls: "
+                + counter(job, "tick_intervals_observed") + " samples | longest "
+                + nanosToMillis(counter(job, "tick_interval_max_nanos")) + " ms | over 100 ms: "
+                + counter(job, "tick_intervals_over_100ms")), false);
+        source.sendSuccess(() -> Component.literal(
+                "Intervals include server scheduling and other work; a long interval is not exclusive attribution to this job."), false);
+        TickTimingSummary ticks = ServerTickMetrics.sample(source.getServer());
+        if (ticks.count() > 0) {
+            source.sendSuccess(() -> Component.literal(String.format(Locale.ROOT,
+                    "Recent server ticks: %d samples | average %.2f MSPT | maximum %.2f ms | over 50 ms: %d",
+                    ticks.count(), ticks.averageMillis(), ticks.maxMillis(), ticks.stallsOver50Millis())), false);
+            source.sendSuccess(() -> Component.literal(
+                    "This recent server snapshot is independent of the locate job; it does not attribute tick stalls to the search."), false);
+        } else {
+            source.sendSuccess(() -> Component.literal("Recent server tick samples are not available yet."), false);
+        }
         source.sendSuccess(() -> Component.literal("Cache hit/miss " + counter(job, "cache_hits") + "/"
                 + counter(job, "cache_misses") + " | index hit/miss " + counter(job, "index_hits")
                 + "/" + counter(job, "index_misses")), false);
@@ -143,6 +178,10 @@ public final class LocateControlCommand {
 
     private static long counter(LocateJobSnapshot job, String name) {
         return job.counters().getOrDefault(name, 0L);
+    }
+
+    private static long nanosToMillis(long nanos) {
+        return nanos / 1_000_000L;
     }
 
     private static long elapsedMillis(LocateJobSnapshot job) {

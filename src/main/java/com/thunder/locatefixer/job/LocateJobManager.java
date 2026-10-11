@@ -21,19 +21,62 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Owns the bounded worker queue, per-source flood protection, cancellation, and status history. */
 public final class LocateJobManager {
     private static final int MAX_HISTORY = 256;
+    private static final ThreadLocal<LocateJob> CURRENT_JOB = new ThreadLocal<>();
 
     private final Map<UUID, LocateJob> jobs = new ConcurrentHashMap<>();
     private final Map<String, UUID> activeBySource = new ConcurrentHashMap<>();
     private final Map<UUID, Future<?>> futures = new ConcurrentHashMap<>();
+    private final Map<UUID, LocateJob> pendingTickMeasurements = new java.util.LinkedHashMap<>();
+    private long lastTickNanos;
     private volatile ThreadPoolExecutor executor;
     private volatile int timeoutSeconds;
+    private volatile int queueCapacity;
 
     public LocateJobManager(int workers, int queueCapacity, int timeoutSeconds) {
         this.executor = buildExecutor(workers, queueCapacity);
         this.timeoutSeconds = Math.max(5, timeoutSeconds);
+        this.queueCapacity = Math.max(1, Math.min(1024, queueCapacity));
+    }
+
+    public static Optional<LocateJob> currentJob() {
+        return Optional.ofNullable(CURRENT_JOB.get());
+    }
+
+    /** Retain bounded job ownership through the next tick, even when a call finishes between ticks. */
+    public synchronized void trackTickImpact(LocateJob job) {
+        if (pendingTickMeasurements.containsKey(job.request().jobId()) || pendingTickMeasurements.size() < MAX_HISTORY) {
+            pendingTickMeasurements.put(job.request().jobId(), job);
+        }
+    }
+
+    public synchronized void recordServerTick(long nowNanos) {
+        if (lastTickNanos != 0L && nowNanos > lastTickNanos) {
+            long interval = nowNanos - lastTickNanos;
+            for (LocateJob job : pendingTickMeasurements.values()) job.recordTickInterval(interval);
+        }
+        pendingTickMeasurements.clear();
+        lastTickNanos = nowNanos;
+    }
+
+    public synchronized void resetTickMeasurements() {
+        pendingTickMeasurements.clear();
+        lastTickNanos = 0L;
+    }
+
+    public Submission submit(LocatorRequest request, LocateJobTask task,
+                             java.util.function.Consumer<LocateJob> completion) {
+        return submitWithCompletion(request, task, completion);
     }
 
     public Submission submit(LocatorRequest request, LocateJobTask task) {
+        return submitWithCompletion(request, task, ignored -> {});
+    }
+
+    private synchronized Submission submitWithCompletion(LocatorRequest request, LocateJobTask task,
+                                                          java.util.function.Consumer<LocateJob> completion) {
+        if (executor.isShutdown() || executor.getQueue().size() >= queueCapacity) {
+            return Submission.rejected("The locate queue is full or the server is stopping. Try again later.");
+        }
         UUID existing = activeBySource.putIfAbsent(request.sourceKey(), request.jobId());
         if (existing != null) {
             return Submission.rejected("A locate request is already active for this source.");
@@ -44,7 +87,7 @@ public final class LocateJobManager {
         jobs.put(request.jobId(), job);
         trimHistory();
         FutureTask<Void> future = new FutureTask<>(() -> {
-            execute(job, task);
+            execute(job, task, completion);
             return null;
         });
         // Publish ownership before execution so a very fast task cannot finish and
@@ -98,29 +141,41 @@ public final class LocateJobManager {
         ThreadPoolExecutor current = executor;
         long active = activeBySource.size();
         return new Diagnostics(current.getCorePoolSize(), current.getQueue().size(),
-                current.getQueue().remainingCapacity(), active, jobs.size(), futures.size(), timeoutSeconds);
+                Math.max(0, queueCapacity - current.getQueue().size()), active, jobs.size(), futures.size(), timeoutSeconds);
     }
 
     public synchronized void reconfigure(int workers, int queueCapacity, int timeoutSeconds) {
-        ThreadPoolExecutor replacement = buildExecutor(workers, queueCapacity);
-        ThreadPoolExecutor previous = executor;
-        executor = replacement;
+        int safeWorkers = Math.max(1, Math.min(8, workers));
+        this.queueCapacity = Math.max(1, Math.min(1024, queueCapacity));
         this.timeoutSeconds = Math.max(5, timeoutSeconds);
-        previous.shutdown();
+        if (executor.isShutdown()) {
+            executor = buildExecutor(safeWorkers, this.queueCapacity);
+        } else if (safeWorkers > executor.getMaximumPoolSize()) {
+            executor.setMaximumPoolSize(safeWorkers);
+            executor.setCorePoolSize(safeWorkers);
+        } else {
+            executor.setCorePoolSize(safeWorkers);
+            executor.setMaximumPoolSize(safeWorkers);
+        }
+    }
+
+    public void cancelAll() {
+        for (String sourceKey : List.copyOf(activeBySource.keySet())) {
+            cancelFor(sourceKey);
+        }
     }
 
     public synchronized void shutdown() {
-        for (LocateJob job : jobs.values()) {
-            if (!job.snapshot().status().isTerminal()) {
-                job.cancel();
-            }
-        }
+        cancelAll();
         activeBySource.clear();
         futures.clear();
         executor.shutdownNow();
+        jobs.clear();
+        resetTickMeasurements();
     }
 
-    private void execute(LocateJob job, LocateJobTask task) {
+    private void execute(LocateJob job, LocateJobTask task, java.util.function.Consumer<LocateJob> completion) {
+        CURRENT_JOB.set(job);
         try {
             if (job.isCancelled()) {
                 if (job.cancellationToken().isTimedOut()) {
@@ -146,8 +201,13 @@ public final class LocateJobManager {
         } catch (Throwable failure) {
             job.fail(failure);
         } finally {
-            activeBySource.remove(job.request().sourceKey(), job.request().jobId());
-            futures.remove(job.request().jobId());
+            try { completion.accept(job); }
+            finally {
+                CURRENT_JOB.remove();
+                activeBySource.remove(job.request().sourceKey(), job.request().jobId());
+                futures.remove(job.request().jobId());
+                trimHistory();
+            }
         }
     }
 
@@ -170,9 +230,8 @@ public final class LocateJobManager {
 
     private static ThreadPoolExecutor buildExecutor(int workers, int queueCapacity) {
         int safeWorkers = Math.max(1, Math.min(8, workers));
-        int safeCapacity = Math.max(1, Math.min(1024, queueCapacity));
         ThreadPoolExecutor pool = new ThreadPoolExecutor(safeWorkers, safeWorkers,
-                30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(safeCapacity),
+                30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024),
                 new WorkerThreadFactory(), new ThreadPoolExecutor.AbortPolicy());
         pool.allowCoreThreadTimeOut(true);
         return pool;

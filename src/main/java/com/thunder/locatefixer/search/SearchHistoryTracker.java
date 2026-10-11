@@ -9,10 +9,15 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Small bounded in-memory history used by the adaptive planner; persistent discoveries remain separate. */
 public final class SearchHistoryTracker {
     private static final int MAX_TARGETS = 2048;
+    private static final Object DEFAULT_SCOPE = new Object();
     private final Map<Key, Stats> history = new ConcurrentHashMap<>();
 
     public SearchPlanningContext contextFor(LocatorRequest request) {
-        Stats stats = history.get(Key.of(request));
+        return contextFor(request, DEFAULT_SCOPE);
+    }
+
+    public SearchPlanningContext contextFor(LocatorRequest request, Object worldScope) {
+        Stats stats = history.get(Key.of(request, worldScope));
         if (stats == null) {
             return SearchPlanningContext.empty();
         }
@@ -21,7 +26,11 @@ public final class SearchHistoryTracker {
     }
 
     public void recordSuccess(LocatorRequest request, int distance, int estimatedCost) {
-        history.compute(Key.of(request), (key, previous) -> {
+        recordSuccess(request, distance, estimatedCost, DEFAULT_SCOPE);
+    }
+
+    public synchronized void recordSuccess(LocatorRequest request, int distance, int estimatedCost, Object worldScope) {
+        history.compute(Key.of(request, worldScope), (key, previous) -> {
             int samples = previous == null ? 1 : Math.min(64, previous.samples + 1);
             int oldDistance = previous == null ? distance : previous.successDistance;
             int average = Math.max(1, (oldDistance * (samples - 1) + Math.max(1, distance)) / samples);
@@ -31,7 +40,11 @@ public final class SearchHistoryTracker {
     }
 
     public void recordFailure(LocatorRequest request, int failedRadius, int estimatedCost) {
-        history.compute(Key.of(request), (key, previous) -> new Stats(
+        recordFailure(request, failedRadius, estimatedCost, DEFAULT_SCOPE);
+    }
+
+    public synchronized void recordFailure(LocatorRequest request, int failedRadius, int estimatedCost, Object worldScope) {
+        history.compute(Key.of(request, worldScope), (key, previous) -> new Stats(
                 previous == null ? 0 : previous.successDistance,
                 Math.max(failedRadius, previous == null ? 0 : previous.failedRadius),
                 previous == null ? 0 : previous.samples,
@@ -58,13 +71,15 @@ public final class SearchHistoryTracker {
                 .forEach(history::remove);
     }
 
-    private record Key(String dimension, String type, String target) {
-        static Key of(LocatorRequest request) {
-            return new Key(request.dimensionId(), request.targetType().name(), request.targetId());
+    private record Key(Object worldScope, String dimension, String type, String target,
+                       int x, int y, int z, int maxRadius) {
+        static Key of(LocatorRequest request, Object worldScope) {
+            return new Key(java.util.Objects.requireNonNull(worldScope), request.dimensionId(), request.targetType().name(), request.targetId(),
+                    request.origin().getX(), request.origin().getY(), request.origin().getZ(), request.maxRadius());
         }
 
         String stableValue() {
-            return dimension + "|" + type + "|" + target;
+            return dimension + "|" + type + "|" + target + "|" + x + "|" + y + "|" + z + "|" + maxRadius;
         }
     }
 

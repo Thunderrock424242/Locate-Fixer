@@ -33,6 +33,7 @@ public final class LocateRuntime {
     }
 
     public static void reloadConfig() {
+        if (!LocateFixerConfig.SERVER.benchmarkEnabled.get()) JOBS.resetTickMeasurements();
         JOBS.reconfigure(
                 LocateFixerConfig.SERVER.locateThreadCount.get(),
                 LocateFixerConfig.SERVER.queueMaxPending.get(),
@@ -71,5 +72,6 @@ public final class LocateRuntime {
     public static void shutdown() {
         JOBS.shutdown();
         PROVIDER_CACHE.clear();
+        SEARCH_HISTORY.clear();
     }
 }

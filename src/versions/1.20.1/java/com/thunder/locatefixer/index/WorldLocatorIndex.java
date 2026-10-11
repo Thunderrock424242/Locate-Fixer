@@ -22,6 +22,7 @@ public final class WorldLocatorIndex extends SavedData {
 
     private WorldLocatorIndex(LocatorIndexState state) {
         this.state = state;
+        if (state.applyLimit(LocateFixerConfig.SERVER.persistentIndexMaxEntries.get())) setDirty();
     }
 
     public static WorldLocatorIndex get(ServerLevel level) {
@@ -51,6 +52,12 @@ public final class WorldLocatorIndex extends SavedData {
                 && state.add(result, LocateFixerConfig.SERVER.persistentIndexMaxEntries.get())) {
             setDirty();
         }
+    }
+
+    /** Datapack reloads revoke previous world-generation evidence. Called on the server thread. */
+    public static void invalidateForReload(ServerLevel level) {
+        WorldLocatorIndex index = get(level);
+        if (index.state.invalidate()) index.setDirty();
     }
 
     public int size() {

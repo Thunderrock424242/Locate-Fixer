@@ -32,6 +32,47 @@ class LocatorIndexStateTest {
     }
 
     @Test
+    void honorsSmallConfiguredEntryLimit() {
+        LocatorIndexState state = new LocatorIndexState();
+        state.add(result("minecraft:village", new BlockPos(10, 64, 10)), 2);
+        state.add(result("minecraft:village", new BlockPos(20, 64, 20)), 2);
+        state.add(result("minecraft:village", new BlockPos(30, 64, 30)), 2);
+        assertEquals(2, state.size());
+    }
+
+    @Test
+    void structuresRequireRecentVerificationAfterReload() {
+        LocatorIndexState state = new LocatorIndexState();
+        state.add(result("minecraft:village", new BlockPos(10, 64, 10)), 128);
+        CompoundTag root = state.save(new CompoundTag());
+        root.getList("entries", net.minecraft.nbt.Tag.TAG_COMPOUND).getCompound(0)
+                .putLong("verifiedAt", System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1));
+        LocatorIndexState loaded = LocatorIndexState.load(root);
+        assertTrue(loaded.findNearest(LocatorTargetType.STRUCTURE, "minecraft:village",
+                "minecraft:overworld", BlockPos.ZERO, 1000,
+                TimeUnit.DAYS.toMillis(1), TimeUnit.MINUTES.toMillis(30)).isEmpty());
+    }
+
+    @Test
+    void missingCoordinateFieldsAreCorruptInsteadOfDefaultingToOrigin() {
+        LocatorIndexState state = new LocatorIndexState();
+        state.add(result("minecraft:village", new BlockPos(10, 64, 10)), 128);
+        CompoundTag root = state.save(new CompoundTag());
+        root.getList("entries", net.minecraft.nbt.Tag.TAG_COMPOUND).getCompound(0).remove("x");
+        assertEquals(0, LocatorIndexState.load(root).size());
+    }
+
+    @Test
+    void futureSchemaIsReadOnlyAndPreservesUnknownData() {
+        CompoundTag future = new CompoundTag();
+        future.putInt("schemaVersion", LocatorIndexState.SCHEMA_VERSION + 1);
+        future.putString("futureField", "keep me");
+        LocatorIndexState state = LocatorIndexState.load(future);
+        assertFalse(state.add(result("minecraft:village", BlockPos.ZERO), 128));
+        assertEquals(future, state.save(new CompoundTag()));
+    }
+
+    @Test
     void skipsMalformedEntriesWithoutDiscardingValidData() {
         LocatorIndexState state = new LocatorIndexState();
         state.add(result("minecraft:village", new BlockPos(10, 64, 10)), 128);

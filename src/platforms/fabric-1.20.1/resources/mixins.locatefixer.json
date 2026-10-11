@@ -4,9 +4,9 @@
   "package": "com.thunder.locatefixer.mixin",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
+    "CommandSourceStackAccessor",
     "FabricCommandErrorMixin",
-    "LocateCommandMixin",
-    "TeleportCommandMixin"
+    "LocateCommandMixin"
   ],
   "injectors": {
     "defaultRequire": 1

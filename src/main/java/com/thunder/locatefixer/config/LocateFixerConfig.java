@@ -117,7 +117,7 @@ public final class LocateFixerConfig {
         public final Value<Integer> persistentIndexExpiryDays = new Value<>(90);
         public final Value<Integer> persistentIndexVerificationMinutes = new Value<>(30);
         public final Value<Integer> teleportPreloadRadiusChunks = new Value<>(1);
-        public final Value<Integer> teleportCountdownSeconds = new Value<>(5);
+        public final Value<Integer> teleportCountdownSeconds = new Value<>(0);
         public final Value<Boolean> teleportCountdownEnabled = new Value<>(true);
         public final Value<Integer> teleportTimeoutSeconds = new Value<>(30);
         public final Value<Integer> safeHorizontalRadius = new Value<>(8);
@@ -207,7 +207,7 @@ public final class LocateFixerConfig {
                     biomeSampleRadiusMultiplier, biomeSampleStepMultiplier, poiSearchRadius,
                     enableFeatureLocateCommand, enableNearestCommand, enableCommandErrorFixer,
                     true, 32, 120, 512, true, 8192, 90, 30,
-                    1, 5, true, 30, 8, 48,
+                    1, 0, true, 30, 8, 48,
                     false, false, false, false, false,
                     true, true, true, false);
         }

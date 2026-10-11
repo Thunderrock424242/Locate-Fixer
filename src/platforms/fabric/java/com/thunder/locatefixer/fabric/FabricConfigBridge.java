@@ -162,16 +162,12 @@ final class FabricConfigBridge {
 
     private static String defaultToml() {
         return """
-                # Locate Unbound server configuration (the filename stays stable for compatibility)
+                # Locate Fixer. Legacy keys remain accepted when present in an existing file.
                 enableNearestCommand = false
 
                 [search]
                 locateRings = [6400, 16000, 32000, 64000, 128000, 256000]
                 locateThreadCount = 1
-                biomeSampleRadiusMultiplier = 1.5
-                biomeSampleStepMultiplier = 1.75
-                adaptiveSearchEnabled = true
-                enableFeatureLocateCommand = false
 
                 [queue]
                 queueMaxPending = 32
@@ -179,31 +175,20 @@ final class FabricConfigBridge {
 
                 [cache]
                 cacheDurationMinutes = 30
-                cacheChunkGranularity = 8
                 cacheMaxEntries = 512
 
                 [index]
-                persistentIndexEnabled = true
                 persistentIndexMaxEntries = 8192
                 persistentIndexExpiryDays = 90
                 persistentIndexVerificationMinutes = 30
 
                 [teleport]
-                teleportPreloadRadiusChunks = 1
-                teleportCountdownSeconds = 5
-                teleportCountdownEnabled = true
+                teleportCountdownSeconds = 0
                 teleportTimeoutSeconds = 30
                 safeHorizontalRadius = 8
                 safeVerticalRange = 48
-                allowWaterLanding = false
-                allowLavaLanding = false
-                allowFireLanding = false
-                allowPowderSnowLanding = false
-                returnPointEnabled = false
 
                 [integrations]
-                enableBiomeSpyCompatibility = true
-                enableCompassCompatibility = true
                 enableAsyncLocatorConflictMode = true
 
                 [benchmark]

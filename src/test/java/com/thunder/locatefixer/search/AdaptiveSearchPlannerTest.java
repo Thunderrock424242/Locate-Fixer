@@ -26,16 +26,27 @@ class AdaptiveSearchPlannerTest {
     }
 
     @Test
-    void skipsRadiiAlreadyCoveredByFailureHistory() {
+    void historicalFailureAndRarityNeverSkipNearbyStages() {
         LocatorRequest request = LocatorRequest.create("test", LocatorTargetType.BIOME,
                 "minecraft:mushroom_fields", "minecraft:overworld", BlockPos.ZERO, 64_000);
 
         SearchPlan plan = planner.plan(request, new int[]{6400, 16000, 32000, 64000},
                 new SearchPlanningContext(0, 16_000, 70, true), 1.5D, 1.75D);
 
-        assertArrayEquals(new int[]{32000, 64000},
+        assertArrayEquals(new int[]{6400, 16000, 32000, 64000},
                 plan.stages().stream().mapToInt(SearchStage::radius).toArray());
         assertEquals(1.5D, plan.stages().get(0).sampleRadiusMultiplier());
         assertTrue(plan.adaptive());
+    }
+
+    @Test
+    void distantSuccessDoesNotSkipNearbySearchAndRequestedMaximumIsReached() {
+        LocatorRequest request = LocatorRequest.create("test", LocatorTargetType.STRUCTURE,
+                "minecraft:village", "minecraft:overworld", BlockPos.ZERO, 20_000);
+        SearchPlan plan = planner.plan(request, new int[]{6400, 16000, 32000},
+                new SearchPlanningContext(18_000, 0, 70, true), 1.0D, 1.0D);
+        assertEquals(6400, plan.stages().get(0).radius());
+        assertEquals(20_000, plan.maxRadius());
+        assertEquals(20_000, plan.stages().get(plan.stages().size() - 1).radius());
     }
 }

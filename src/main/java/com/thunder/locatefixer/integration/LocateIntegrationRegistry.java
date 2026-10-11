@@ -24,7 +24,7 @@ public final class LocateIntegrationRegistry {
                 List.of("asynclocator", "async_locator", "async_locator_refined"),
                 "conflict-safe mode; Locate Unbound yields vanilla /locate interception to the other mod"));
         detect(new Descriptor("worldedit", "WorldEdit", List.of("worldedit"),
-                "schematic name discovery with explicit operator anchor recording"));
+                "no schematic scanning or command registration; legacy API remains available"));
     }
 
     public List<IntegrationStatus> statuses() {

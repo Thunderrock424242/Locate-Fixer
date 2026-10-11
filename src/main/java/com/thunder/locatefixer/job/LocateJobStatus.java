@@ -6,6 +6,8 @@ public enum LocateJobStatus {
     SEARCHING(false),
     BACKEND_SEARCH(false),
     FOUND(true),
+    NOT_FOUND(true),
+    UNAVAILABLE(true),
     FAILED(true),
     CANCELLED(true),
     TIMED_OUT(true);

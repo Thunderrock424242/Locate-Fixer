@@ -149,7 +149,7 @@ final class NeoForgeConfigBridge {
 
             builder.push("teleport");
             teleportPreloadRadiusChunks = builder.defineInRange("preloadRadiusChunks", 1, 0, 8);
-            teleportCountdownSeconds = builder.defineInRange("countdownSeconds", 5, 0, 60);
+            teleportCountdownSeconds = builder.defineInRange("countdownSeconds", 0, 0, 60);
             teleportCountdownEnabled = builder.define("countdownEnabled", true);
             teleportTimeoutSeconds = builder.defineInRange("timeoutSeconds", 30, 5, 300);
             safeHorizontalRadius = builder.defineInRange("safeHorizontalRadius", 8, 1, 32);

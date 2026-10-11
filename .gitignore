@@ -25,3 +25,6 @@ run-data
 logs
 
 repo
+
+# Local validation scratch output
+.codex-build/

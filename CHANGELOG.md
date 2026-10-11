@@ -1,57 +1,44 @@
 # Changelog
 
-## 4.0.0 — Locate Unbound architecture upgrade
+## 4.0.0 development — Locate Fixer safety and correctness refactor
 
-### Branding
+Based on the `1.21.1` development architecture. Locate Fixer is the public name; Locate Unbound remains the discovery engine. The technical `locatefixer` ID, Java APIs, resource paths, configuration keys and world index filename are preserved.
 
-- Renamed the public mod name from Locate Fixer to Locate Unbound.
-- Added new master, 128-pixel, and packaged loader icons.
-- Preserved `locatefixer` as the mod ID, package namespace, resource namespace, config filename, SavedData filename prefix, and compatibility command alias.
+### Search
 
-### Discovery engine
+- Preserve every nearby configured stage; success history adds useful radii rather than skipping closer terrain. Failure history is scoped to exact origin and world lifetime.
+- Treat persistent discoveries as candidates that require live search, with spatial lookup, bounded load/pruning, restart verification, datapack invalidation and read-only preservation of unknown future schemas.
+- Scope memory results to exact XYZ, target, world/dimension, registry lifetime and search radius. Bound expiry/eviction and clear all lifecycle owners.
+- Convert structure block limits to Minecraft placement-ring inputs and reject results beyond the requested bound. Keep native biome sampling and generation ownership.
+- Remove extra chunk generation used only to refine normal structure output.
+- Distinguish unavailable, not found, cancelled, timed out and failed jobs.
 
-- Added normalized locator requests/results and target types.
-- Added pluggable backend metadata and deterministic backend selection.
-- Added adaptive search plans with configured-ring fallback and bounded distance history.
-- Added a bounded job queue, named daemon workers, cooperative cancellation/timeouts, per-source flood protection, status history, and progress metrics.
-- Routed structures, biomes, POIs, feature-capability lookups, dimension travel, schematic lookups, nearest-X searches, and custom providers through the shared job owner.
-- Moved biome, feature, dimension, schematic, and provider world queries through the server executor.
-- Rechecked cancellation and deadlines after every backend world operation so a late result cannot be accepted after timeout.
+### Jobs and performance
 
-### Persistent world index
+- Reconfigure one bounded executor instead of accumulating worker pools; cancellation reclaims pending capacity.
+- Bound worker waits for server callbacks and abandon cancelled queued world calls. Never interrupt an already-running generator call or wait on worker futures from the server thread.
+- Ignore late cancelled results, clear shutdown/restart state and cancel disconnected players.
+- Measure actual server-call execution, queue wait and elapsed intervals between ticks overlapping calls. Operator benchmarks also show recent native tick samples with explicit attribution limits.
 
-- Added dimension-aware, deduplicated, bounded Minecraft SavedData at `world/data/locatefixer_index.dat`.
-- Added schema versioning, malformed-entry isolation, age expiry, mutable-target verification windows, and verified-only result writes.
-- Kept the existing structure and biome memory caches and completed provider `MEMORY`/`PERSISTENT` cache-policy handling.
-- Prevented unverified and legacy predictive feature records from being served as exact discoveries.
+### Safe travel
 
-### API and integrations
+- Add explicit player-only `teleport` suffixes to native structure, biome and POI arguments.
+- Ordinary locate only reports coordinates; coordinate clicks suggest text. Remove runtime `/tp` interception.
+- Replace carving, forced-chunk sharing and the scheduled teleport executor with read-only natural landing searches on loader ticks.
+- Use unique temporary tickets, actual FULL readiness, bounded operation/ticket/check budgets, underground-first search, collision/border/hazard checks and immediate revalidation.
+- Release tickets after cancellation, disconnect, dimension change, timeout, failure, completion and shutdown; retain failed cleanup ownership for retry.
+- Default countdown to zero while honoring existing configured values. Unsafe legacy hazard flags cannot relax the safe path.
 
-- Added unified provider metadata for structures, biomes, POIs, features, and custom targets.
-- Preserved the old custom-structure registry through a deprecated compatibility bridge.
-- Added safe optional detection and diagnostics for BiomeSpy, Nature's Compass, Explorer's Compass, Async Locator Refined, and WorldEdit.
-- Added conflict-safe vanilla `/locate` ownership when Async Locator Refined is detected.
-- Replaced the nonfunctional WorldEdit edit-session guess with `/locate schematic record <name>` and dimension-aware session lookup.
+### Scope and compatibility
 
-### Commands and diagnostics
-
-- Added `/locate status` and `/locate cancel`.
-- Added `/locateunbound diagnostics` and the compatibility alias `/locatefixer diagnostics`.
-- Added config-gated `/locateunbound benchmark` for the operator's latest search.
-- Added tracked-future diagnostics and fixed the fast-completion race that could retain finished futures.
-
-### Teleport safety
-
-- Scoped preload handling to one-time recent locate coordinate grants; unrelated `/tp` commands remain vanilla.
-- Replaced estimated preload progress with actual ready-chunk counts and a real timeout.
-- Added configurable countdown, preload radius, landing search ranges, and hazard permissions.
-- Added conservative checks for lava, water, fire, campfires, powder snow, void bounds, suffocation, unsupported positions, falling-block floors, and ceiling dimensions.
-- Ensured only tickets added by Locate Unbound are released after every completion and cancellation path.
+- Remove schematic tracking/commands, random dimension travel and give/summon/effect correction from the runtime. Retain public compatibility helpers and document replacements.
+- Keep nearest/provider/feature-capability tools optional and diagnostics operator-invoked.
+- Preserve conflict yielding to Async Locator Refined and use vanilla registries/generator hooks for other worldgen mods.
+- Investigate issue #89 from its attached crash: the old 3.1.0 Forge artifact reported a missing injection target/refmap. This is not evidence of an Ixeris thread conflict.
+- Simplify newly generated Fabric configuration and document retained loader-managed legacy keys.
 
 ### Validation
 
-- Added planner, progress-message, persistent-index, provider-memory-cache, backend deadline, and job-cleanup unit tests.
-- Enabled the NeoForge ModDev JUnit test environment and added test-source Minecraft dependencies for the legacy Forge target.
-- Added all-loader metadata icon declarations.
-- The four-target Gradle test suite passes 11 tests per target (44 executions total) for Forge 1.20.1, Fabric 1.20.1, NeoForge 1.21.1, and Fabric 1.21.1.
-- Live client, dedicated-server, multiplayer, command, teleport, WorldEdit, and gameplay acceptance checks remain release-candidate validation tasks.
+See [the validation report](docs/4.0-validation.md) for exact test/build/artifact evidence. Regression tests cover planner/index nearest invariants, exact cache scope, provider coordinate overflow, cancellation/reconfiguration/restart, bounded owner-thread waits, Brigadier attachment, tick telemetry, natural landing fixtures and independent ticket cleanup.
+
+Automated checks do not establish live gameplay, multiplayer, custom dimension/modpack compatibility or comparative MSPT/CPU/memory results. These remain release acceptance work.
