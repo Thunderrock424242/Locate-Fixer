@@ -1,0 +1,20 @@
+// Optional client fixture; its sources and metadata never enter production source sets/JARs.
+allprojects {
+    plugins.withId('net.neoforged.moddev.legacyforge') {
+        afterEvaluate {
+            if (!rootProject.hasProperty('ixerisTest')) {
+                throw new GradleException('The Ixeris probe requires -PixerisTest.')
+            }
+            def probe = sourceSets.create('ixerisProbe') {
+                java.srcDir(rootProject.file('tools/compat/ixeris-probe/java'))
+                resources.srcDir(rootProject.file('tools/compat/ixeris-probe/resources'))
+                compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
+                runtimeClasspath += sourceSets.main.runtimeClasspath
+            }
+            legacyForge.mods.create('locatefixer_ixeris_probe') { sourceSet(probe) }
+            legacyForge.runs.named('clientIxeris') {
+                loadedMods.set([legacyForge.mods.locatefixer, legacyForge.mods.locatefixer_ixeris_probe])
+            }
+        }
+    }
+}

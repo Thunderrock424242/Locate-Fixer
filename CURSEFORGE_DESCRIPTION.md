@@ -1,61 +1,30 @@
-# Locate Fixer (NeoForge 1.21.1)
+# Locate Fixer
 
-Locate Fixer is a server-first quality-of-life mod that makes locating things in Minecraft reliable again on big or heavily-modded worlds.
+Locate Fixer improves Minecraft's familiar `/locate structure`, `/locate biome` and `/locate poi` workflow with nearby-first search planning, a bounded queue, recent-result caches and a persistent discovery index. The Locate Unbound engine powers these features by default.
 
-If vanilla `/locate` times out, misses far targets, or makes staff run the same lookup repeatedly, this mod extends and stabilizes that workflow with async searching, caching, and better command utilities.
+Ordinary locate reports coordinates. Add `teleport` explicitly to request safe player travel:
 
-## Core improvements
-- **Long-range locate rings** (default up to `256000` blocks) so distant structures/biomes are still discoverable.
-- **Asynchronous locate scanning** so the server can stay responsive while searches run.
-- **Locate result caching** to speed up repeated lookups in nearby areas.
-- **Progress feedback in chat** while scans are in-flight.
+```text
+/locate structure minecraft:stronghold teleport
+/locate biome minecraft:cherry_grove teleport
+/locate poi minecraft:home teleport
+/locate status
+/locate cancel
+```
 
-## Command features
+Safe travel waits for actual loaded chunks and finds a naturally safe landing. It checks floor support, headroom, collision, fluids, hazards and the world border. It preserves orientation and never places, removes or replaces blocks. If the bounded search cannot find a safe destination, travel cancels. New configs have no countdown.
 
-### Enhanced locate behavior
-Use vanilla-style locate commands with improved reliability:
-- `/locate structure ...`
-- `/locate biome ...`
+| Minecraft | Loader | Java | Extra requirement |
+| --- | --- | --- | --- |
+| 1.20.1 | Forge 47.4.10+ | 17 | None |
+| 1.20.1 | Fabric | 17 | Fabric API |
+| 1.21.1 | NeoForge 21.1.219+ | 21 | None |
+| 1.21.1 | Fabric | 21 | Fabric API |
 
-### Locate Nearest (multiple results)
-Need more than one hit? Use:
-- `/locate nearest structure <count>`
-- `/locate nearest biome <count>`
+Install the matching JAR on the server. Locate Fixer does not require its own client installation. The `locatefixer` mod ID and existing config/world data paths stay unchanged.
 
-This is especially useful for routing, exploration planning, and modpack progression design.
+Searches use active registries and vanilla generation hooks. Historical hints and indexed candidates never replace a live nearest search. Async Locator Refined conflict mode yields overlapping locate ownership; compass mods keep their own search systems.
 
-### Last Death (optional)
-When enabled in config:
-- `/locate lastdeath`
+Operator diagnostics, benchmarks, provider integration and optional nearest tools remain available. WorldEdit tracking, random dimension travel and unrelated command correction are removed from the runtime.
 
-Great for recovery flows after deaths in hard worlds.
-
-### Extra utility commands
-- `/locate dimension`
-- `/locate schematic <name>` (WorldEdit schematic folder integration)
-- `/locate structure <namespace:id>` (custom provider/API integration)
-- `/base`, `/home`, `/locate home <name>`, `/locate playerhome <player> [name]` (config-gated)
-
-## WorldEdit integration
-If WorldEdit is present, Locate Fixer scans `config/worldedit/schematics` so your `.schem` files can be located by name with `/locate schematic <name>`.
-
-## Modpack & server-friendly configuration
-Everything is server-configurable in `config/locatefixer-server.toml`, including:
-- Locate ring distances
-- Async worker thread count
-- Cache duration and granularity
-- Biome sampling multipliers
-- POI search radius
-- Feature toggles (including `nearest`, `lastdeath`, and base/home commands)
-
-Config reload is supported, so you can tune behavior without full restarts.
-
-## Who this is for
-- **Players:** faster, more reliable locate workflow with less trial-and-error.
-- **Server admins/staff:** better moderation/support tooling for helping players navigate.
-- **Modpack authors:** predictable locate behavior across dense worldgen and large progression packs.
-- **Mod developers:** register custom structure locators through the Locate Fixer API so your own generated content works with `/locate structure <id>`.
-
----
-
-Locate Fixer keeps locate-based gameplay and admin support practical at scale.
+Workers orchestrate bounded requests, while live world queries stay on Minecraft's server thread. A generator call can still cause tick lag; background dispatch does not make world generation completely nonblocking. This development candidate still needs live modpack, multiplayer and comparative performance acceptance. See the repository's validation report before publishing.

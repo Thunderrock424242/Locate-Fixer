@@ -1,0 +1,43 @@
+package com.thunder.locatefixer.util;
+
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ComponentUtils;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.util.Mth;
+
+/** Coordinate reporting has no travel side effects. */
+public class LocateResultHelper {
+    public static void sendResult(CommandSourceStack source, String label, Holder<?> target,
+                                  BlockPos from, BlockPos to, boolean absoluteY) {
+        sendResult(source, label, target.getRegisteredName(), from, to, absoluteY);
+    }
+
+    public static void sendResult(CommandSourceStack source, String label, String name,
+                                  BlockPos from, BlockPos to, boolean absoluteY) {
+        int distance = absoluteY
+                ? Mth.floor(Mth.sqrt((float) from.distSqr(to)))
+                : Mth.floor(distXZ(from, to));
+        String yText = absoluteY ? String.valueOf(to.getY()) : "~";
+        String coordinateText = to.getX() + " " + yText + " " + to.getZ();
+        Component coords = ComponentUtils.wrapInSquareBrackets(
+                Component.translatable("chat.coordinates", to.getX(), yText, to.getZ()))
+                .withStyle(style -> style
+                        .withColor(ChatFormatting.GREEN)
+                        .withClickEvent(new ClickEvent(ClickEvent.Action.COPY_TO_CLIPBOARD, coordinateText))
+                        .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+                                Component.literal("Copy coordinates"))));
+        Component message = Component.translatable(label, name, coords, distance);
+        source.sendSuccess(() -> message, false);
+    }
+
+    private static float distXZ(BlockPos a, BlockPos b) {
+        long dx = (long) b.getX() - a.getX();
+        long dz = (long) b.getZ() - a.getZ();
+        return (float) Math.sqrt((double) dx * dx + (double) dz * dz);
+    }
+}

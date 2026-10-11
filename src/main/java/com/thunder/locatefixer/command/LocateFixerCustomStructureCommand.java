@@ -3,6 +3,8 @@ package com.thunder.locatefixer.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.thunder.locatefixer.api.StructureLocatorRegistry;
+import com.thunder.locatefixer.api.LocatorProviderRegistry;
+import com.thunder.locatefixer.api.LocatorTargetType;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -12,6 +14,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 
 import java.util.Locale;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Adds a dedicated `/xlocate customstructure <id>` branch for custom structures
@@ -28,10 +32,10 @@ public final class LocateFixerCustomStructureCommand {
                 // Register under a dedicated subcommand so vanilla
                 // `/locate structure <vanilla_id>` is never shadowed.
                 .then(Commands.literal("customstructure")
-                        .requires(source -> source.hasPermission(2) && StructureLocatorRegistry.hasRegisteredStructures())
+                        .requires(source -> source.hasPermission(2) && !registeredIds().isEmpty())
                         .then(Commands.argument("custom_structure", StringArgumentType.string())
                                 .suggests((ctx, builder) ->
-                                        SharedSuggestionProvider.suggest(StructureLocatorRegistry.getRegisteredStructureIds(), builder))
+                                        SharedSuggestionProvider.suggest(registeredIds(), builder))
                                 .executes(ctx -> locate(
                                         ctx.getSource(),
                                         StringArgumentType.getString(ctx, "custom_structure")
@@ -40,7 +44,7 @@ public final class LocateFixerCustomStructureCommand {
 
     private static int locate(CommandSourceStack source, String rawId) {
         String id = rawId.toLowerCase(Locale.ROOT);
-        if (!StructureLocatorRegistry.isRegistered(id)) {
+        if (!StructureLocatorRegistry.isRegistered(id) && LocatorProviderRegistry.get(id).isEmpty()) {
             source.sendFailure(Component.literal("❌ Unknown structure id: " + rawId));
             return 0;
         }
@@ -49,5 +53,15 @@ public final class LocateFixerCustomStructureCommand {
         BlockPos origin = BlockPos.containing(source.getPosition());
         AsyncLocateHandler.locateCustomStructureAsync(source, id, origin, level);
         return 1;
+    }
+
+    private static Set<String> registeredIds() {
+        Set<String> ids = new TreeSet<>(StructureLocatorRegistry.getRegisteredStructureIds());
+        LocatorProviderRegistry.allProviders().stream()
+                .filter(provider -> provider.targetType() == LocatorTargetType.STRUCTURE
+                        || provider.targetType() == LocatorTargetType.CUSTOM)
+                .map(provider -> provider.id())
+                .forEach(ids::add);
+        return ids;
     }
 }

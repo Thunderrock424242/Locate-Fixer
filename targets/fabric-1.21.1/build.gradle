@@ -1,0 +1,30 @@
+plugins {
+    id 'net.fabricmc.fabric-loom-remap'
+}
+
+ext.targetMinecraftVersion = rootProject.minecraft_1211
+ext.targetLoader = 'fabric'
+ext.targetJavaVersion = 21
+
+apply from: rootProject.file('gradle/target-common.gradle')
+
+dependencies {
+    minecraft "com.mojang:minecraft:${rootProject.minecraft_1211}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_api_1211}"
+}
+
+loom {
+    runs {
+        client {
+            client()
+            name = 'Fabric 1.21.1 Client'
+        }
+        server {
+            server()
+            name = 'Fabric 1.21.1 Server'
+            programArg '--nogui'
+        }
+    }
+}
