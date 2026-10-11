@@ -28,9 +28,9 @@ public class LocateResultHelper {
                 Component.translatable("chat.coordinates", to.getX(), yText, to.getZ()))
                 .withStyle(style -> style
                         .withColor(ChatFormatting.GREEN)
-                        .withClickEvent(new ClickEvent(ClickEvent.Action.COPY_TO_CLIPBOARD, coordinateText))
+                        .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, coordinateText))
                         .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-                                Component.literal("Copy coordinates"))));
+                                Component.literal("Insert coordinates into chat"))));
         Component message = Component.translatable(label, name, coords, distance);
         source.sendSuccess(() -> message, false);
     }
