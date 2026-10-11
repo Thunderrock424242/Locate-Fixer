@@ -1,0 +1,62 @@
+plugins {
+    id 'net.neoforged.moddev.legacyforge'
+}
+
+ext.targetMinecraftVersion = rootProject.minecraft_1201
+ext.targetLoader = 'forge'
+ext.targetJavaVersion = 17
+
+apply from: rootProject.file('gradle/target-common.gradle')
+
+def ixerisTest = rootProject.hasProperty('ixerisTest')
+if (ixerisTest) {
+    repositories {
+        exclusiveContent {
+            forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+            filter { includeGroup 'maven.modrinth' }
+        }
+    }
+}
+
+legacyForge {
+    // Match issue #89 only in the opt-in profile; normal builds retain the supported baseline.
+    version = "${rootProject.minecraft_1201}-${ixerisTest ? '47.4.20' : rootProject.forge_1201}"
+    addModdingDependenciesTo(sourceSets.test)
+
+    runs {
+        client { client() }
+        server {
+            server()
+            programArgument '--nogui'
+        }
+        if (ixerisTest) {
+            clientIxeris {
+                client()
+                gameDirectory = rootProject.layout.buildDirectory.dir('smoke/forge-ixeris-client').get().asFile
+            }
+        }
+    }
+
+    mods {
+        locatefixer {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+mixin {
+    add sourceSets.main, 'mixins.locatefixer.refmap.json'
+    config 'mixins.locatefixer.json'
+}
+
+dependencies {
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+    if (ixerisTest) {
+        // Ixeris 4.6.5+1.20.1-forge, pinned to the reported Modrinth version.
+        modRuntimeOnly 'maven.modrinth:ixeris:NpoM2rQr'
+    }
+}
+
+tasks.named('jar', Jar).configure {
+    manifest.attributes('MixinConfigs': 'mixins.locatefixer.json')
+}

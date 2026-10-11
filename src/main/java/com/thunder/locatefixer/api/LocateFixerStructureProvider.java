@@ -9,6 +9,7 @@ import java.util.Optional;
  * Implement this interface in your own structure handler class, then call
  * {@link StructureLocatorRegistry#register(LocateFixerStructureProvider)} during mod setup.
  */
+@Deprecated(forRemoval = false)
 public interface LocateFixerStructureProvider {
 
     /**
@@ -17,6 +18,10 @@ public interface LocateFixerStructureProvider {
     String locateFixerStructureId();
 
     /**
+     * Called on Minecraft's server thread because the supplied level is live world
+     * state. Implementations should remain fast and bounded and must not retain the
+     * level for access from another thread.
+     *
      * @param level     world to search
      * @param origin    player command position
      * @param maxRadius maximum allowed search radius in blocks

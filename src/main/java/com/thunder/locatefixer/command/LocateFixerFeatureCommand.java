@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.thunder.locatefixer.config.LocateFixerConfig;
 import com.thunder.locatefixer.util.AsyncLocateHandler;
 import com.thunder.locatefixer.util.LocateResultHelper;
+import com.thunder.locatefixer.search.LocateCancellationToken;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -12,7 +13,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
 import net.minecraft.core.Registry;
-import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -69,21 +69,12 @@ public final class LocateFixerFeatureCommand {
         }
 
         BlockPos origin = BlockPos.containing(source.getPosition());
-        source.sendSuccess(() -> Component.literal("🔍 Locating feature '" + featureId + "'..."), false);
+        source.sendSuccess(() -> Component.literal("🔍 Finding the nearest biome capable of generating feature '"
+                + featureId + "'..."), false);
 
-        AsyncLocateHandler.runAsyncTask("locate-feature-" + featureId, () -> {
-            int[] searchRings = LocateFixerConfig.SERVER.locateRings.get().stream().mapToInt(Integer::intValue).toArray();
-            if (searchRings.length == 0) {
-                level.getServer().execute(() -> source.sendFailure(Component.literal("❌ No locate search radii configured.")));
-                return;
-            }
-
-            Optional<BlockPos> result = findNearestFeatureBiome(level, origin, featureKey, searchRings);
-            level.getServer().execute(() -> result.ifPresentOrElse(
-                    pos -> LocateResultHelper.sendResult(source, "commands.locatefixer.base.success", featureId.toString(), origin, pos, true),
-                    () -> source.sendFailure(Component.literal("❌ Feature '" + featureId + "' not found within " + searchRings[searchRings.length - 1] + " blocks."))
-            ));
-        });
+        AsyncLocateHandler.locateFeatureAsync(source, featureId.toString(), origin, level,
+                (searchRings, cancellationToken) -> findNearestFeatureBiome(
+                        level, origin, featureKey, searchRings, cancellationToken));
 
         return 1;
     }
@@ -92,53 +83,27 @@ public final class LocateFixerFeatureCommand {
             ServerLevel level,
             BlockPos origin,
             ResourceKey<PlacedFeature> featureKey,
-            int[] searchRings
+            int[] searchRings,
+            LocateCancellationToken cancellationToken
     ) {
-        int originChunkX = SectionPos.blockToSectionCoord(origin.getX());
-        int originChunkZ = SectionPos.blockToSectionCoord(origin.getZ());
-        final int chunkStep = 4;
-
         for (int radius : sortedRings(searchRings)) {
-            int chunkRadius = Math.max(1, radius >> 4);
-            BlockPos nearest = null;
-            long nearestDistanceSq = Long.MAX_VALUE;
-
-            for (int offset = -chunkRadius; offset <= chunkRadius; offset += chunkStep) {
-                nearest = pickNearest(level, origin, featureKey, originChunkX + offset, originChunkZ - chunkRadius, nearest, nearestDistanceSq);
-                if (nearest != null) nearestDistanceSq = distSqXZ(origin, nearest);
-                nearest = pickNearest(level, origin, featureKey, originChunkX + offset, originChunkZ + chunkRadius, nearest, nearestDistanceSq);
-                if (nearest != null) nearestDistanceSq = distSqXZ(origin, nearest);
-                nearest = pickNearest(level, origin, featureKey, originChunkX - chunkRadius, originChunkZ + offset, nearest, nearestDistanceSq);
-                if (nearest != null) nearestDistanceSq = distSqXZ(origin, nearest);
-                nearest = pickNearest(level, origin, featureKey, originChunkX + chunkRadius, originChunkZ + offset, nearest, nearestDistanceSq);
-                if (nearest != null) nearestDistanceSq = distSqXZ(origin, nearest);
-            }
-
-            if (nearest != null) {
-                return Optional.of(nearest);
+            cancellationToken.throwIfCancelled();
+            int horizontalInterval = Math.max(32, Math.min(256, radius / 256));
+            var match = level.findClosestBiome3d(
+                    biome -> biomeContainsFeature(biome, featureKey),
+                    origin,
+                    radius,
+                    horizontalInterval,
+                    64
+            );
+            if (match != null) {
+                // Generation settings establish biome capability only. They do not
+                // prove that a placed-feature instance exists at this coordinate.
+                return Optional.of(match.getFirst());
             }
         }
 
         return Optional.empty();
-    }
-
-    private static BlockPos pickNearest(
-            ServerLevel level,
-            BlockPos origin,
-            ResourceKey<PlacedFeature> featureKey,
-            int chunkX,
-            int chunkZ,
-            BlockPos currentNearest,
-            long currentNearestDistanceSq
-    ) {
-        BlockPos candidate = chunkCenter(chunkX, chunkZ);
-        if (!biomeContainsFeature(level.getBiome(candidate), featureKey)) {
-            return currentNearest;
-        }
-
-        BlockPos surface = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, candidate);
-        long distanceSq = distSqXZ(origin, surface);
-        return distanceSq < currentNearestDistanceSq ? surface : currentNearest;
     }
 
     private static boolean biomeContainsFeature(Holder<Biome> biome, ResourceKey<PlacedFeature> featureKey) {
@@ -162,13 +127,4 @@ public final class LocateFixerFeatureCommand {
                 .toArray();
     }
 
-    private static BlockPos chunkCenter(int chunkX, int chunkZ) {
-        return new BlockPos((chunkX << 4) + 8, 0, (chunkZ << 4) + 8);
-    }
-
-    private static long distSqXZ(BlockPos a, BlockPos b) {
-        long dx = (long) b.getX() - a.getX();
-        long dz = (long) b.getZ() - a.getZ();
-        return dx * dx + dz * dz;
-    }
 }

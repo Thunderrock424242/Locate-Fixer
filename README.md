@@ -1,42 +1,84 @@
 # Locate Fixer
 
-Locate Fixer is a lightweight quality-of-life mod for Forge 1.20.1 that makes Minecraft's `/locate`, `/locate biome`, and `/tp` commands reliable for players, staff, and pack makers. The mod keeps searching long after vanilla would give up, streams progress back to chat, and makes teleporting to the result safe even on busy servers.
+![Locate Unbound engine logo](branding/locate-unbound-logo-128.png)
 
-## Highlights
-- **Escalating search radii.** Locate rings climb from 6,400 blocks up to 256,000 blocks, so far-flung structures and modded biomes are actually discoverable.
-- **Async locate workers.** Scans run in a background thread pool while the main server thread stays responsive and keeps players moving.
-- **Smart caching.** Recently found structures and biomes are cached and instantly reused for nearby requests, saving repeated scans.
-- **Nearest X mode (integrated into `/locate`).** Use `/locate nearest structure <count>` or `/locate nearest biome <count>` to list multiple closest matches instead of a single locate hit.
-- **Safer teleports.** `/tp` to a locate result preloads the destination chunks, shows a 5‑second countdown, and only moves the player once everything is ready.
-- **Schematic helpers.** `/locate schematic <name>` hooks into the WorldEdit `config/worldedit/schematics` folder so custom builds are easy to revisit.
+Locate Fixer is a server-first locate utility powered by the Locate Unbound discovery engine. Install it and use Minecraft's familiar `/locate` commands. Adaptive planning, recent-search caching, and a persistent world discovery index are enabled by default. The technical ID remains `locatefixer`.
 
-## Configuration
-Locate Fixer is configurable through the generated `config/locatefixer-server.toml` file.
+## Supported targets
 
-- `locate.locateRings` — Ordered list of block radii to search. You can shrink or expand the search ceiling to fit your world size.
-- `locate.locateThreadCount` — Number of async worker threads (1–8) that handle structure and biome scans.
-- `locate.cacheDurationMinutes` — How long locate results stay cached before expiring.
-- `locate.cacheChunkGranularity` — How broadly cached results can be reused around the original request.
-- `locate.biomeSampleRadiusMultiplier` & `locate.biomeSampleStepMultiplier` — Tune biome sampling density for faster or more precise biome scans.
-- `locate.enableFeatureLocateCommand` — Enables `/locate feature <placed_feature_id>` for finding nearby biomes that can generate that placed feature (defaults to `false`).
-- `poi.poiSearchRadius` — Maximum radius the mod uses when scanning for points of interest.
+Install the JAR matching the server's exact Minecraft version and loader. No Locate Fixer client installation is required.
 
-Changes can be reloaded on the fly with standard Forge config reloads—no restart required.
+| Minecraft | Loader | Java | Extra requirement |
+| --- | --- | --- | --- |
+| 1.20.1 | Forge 47.4.10+ | 17 | None |
+| 1.20.1 | Fabric | 17 | Fabric API |
+| 1.21.1 | NeoForge 21.1.219+ | 21 | None |
+| 1.21.1 | Fabric | 21 | Fabric API |
 
-## Usage
-1. Install Locate Fixer on the server (optional but recommended on clients for consistent chat messages).
-2. Run `/locate` or `/locate biome` as usual. Progress messages show which radius is currently scanning.
-3. For multiple nearest matches, use `/locate nearest structure <count>` or `/locate nearest biome <count>`.
-4. (Optional, config-gated) Use `/locate feature <namespace:id>` to find nearby areas whose biome settings include that placed feature.
-5. Use `/tp` immediately after; the mod preloads the target area and teleports you safely once it’s chunk-loaded.
-6. Drop `.schem` files into `config/worldedit/schematics/` to make them discoverable via `/locate schematic <name>`.
+## Locate and optional travel
 
-## API Integration for Other Mods
-If your mod places structures with custom code, you can register a Locate Fixer provider so `/xlocate customstructure <id>` can find them. See `API_DOCUMENTATION.md` for setup steps and examples.
+These retain vanilla argument parsing and operator permission level 2:
 
-## Compatibility
-- Forge 1.20.1
-- No hard dependencies
-- Designed to coexist with optimization mods and structure/worldgen content packs
+```text
+/locate structure minecraft:stronghold
+/locate biome minecraft:cherry_grove
+/locate poi minecraft:home
+```
 
-Whether you're hunting a single rare biome, confirming a structure generated, or guiding new players across a modded server, Locate Fixer keeps the locate workflow fast, chatty, and safe from start to finish.
+Ordinary locate reports coordinates and distance. Clicking coordinates suggests text for copying; it does not start teleport preparation. To request safe travel explicitly, a player can add `teleport`:
+
+```text
+/locate structure minecraft:stronghold teleport
+/locate biome minecraft:cherry_grove teleport
+/locate poi minecraft:home teleport
+/locate status
+/locate cancel
+```
+
+Travel prepares only the chunks covering a bounded landing search. It waits for FULL chunks, searches naturally safe floors and headroom near the target height, checks collision, fluids, hazards and the world border, then revalidates immediately before moving the player. It never places, removes or replaces blocks. If no safe landing exists, it cancels. New configurations use no countdown; an existing configured countdown is respected. `/locate cancel` cancels either searching or travel preparation. Other `/tp` commands retain vanilla behavior.
+
+Searches distinguish a target unavailable in the dimension, no result within the search limit, cancellation, timeout, and an execution error. Native biome search keeps vanilla sampling; it does not exhaustively inspect every block. Structure results use Minecraft's native placement search semantics.
+
+Vanilla commands with result callbacks, including `/execute store`, keep synchronous native handling. RCON also uses native handling because its response must be returned immediately. The explicit teleport suffix is an asynchronous player action.
+
+## Search ownership and performance
+
+The shared path uses a bounded job queue, compatible recent results, indexed candidates, nearby-first search stages, and the selected backend. Previous successes may add a useful radius; speculative failures never remove nearby stages. An indexed location adds a candidate search radius rather than being returned directly as the nearest result. Live generator/provider queries still establish the answer.
+
+Caches distinguish exact XYZ origin, target, dimension, radius, world and registry lifetime. The world index in `world/data/locatefixer_index.dat` is bounded, dimension-aware and spatially partitioned. Restarted or expired entries require live verification; datapack reload invalidates discoveries and cancels old jobs. Malformed records are isolated, old supported data migrates, and unknown newer schemas are preserved without writes.
+
+Workers handle orchestration. Minecraft world generation, biome/POI queries, providers, SavedData and teleporting stay on the server thread. Worker waits check cancellation and deadlines. A queued call can be abandoned; an already-running vanilla worldgen call cannot be safely interrupted and can stall a server tick. More workers do not make those calls parallel or eliminate this limitation. Normal output does not generate extra chunks to refine a structure center.
+
+## Optional operator tools
+
+- `/locate nearest` remains opt-in with `enableNearestCommand`; it is an aggregate sampling tool.
+- `/xlocate customstructure <id>` supports unified and legacy providers.
+- `/locatefixer diagnostics` shows resource limits, backend ownership and detected integrations. `/locateunbound` is retained as an alias.
+- `/locatefixer benchmark` requires `benchmarkEnabled`. It reports job wall time, server-call/wait timings, cache/index counters, elapsed intervals between ticks overlapping those calls, and Minecraft's recent tick samples. Neither measure attributes other server work exclusively to the job.
+- The legacy feature-capability command remains opt-in. It identifies a suitable biome rather than proving an exact placed feature.
+
+Async Locator Refined detection yields overlapping native locate ownership by default. The optional teleport suffix is omitted in that mode. Modded structures and biomes use the active registries and biome source; compass mods keep their own searches. See the [compatibility and validation report](docs/4.0-validation.md) for source review, issue #89, build evidence and remaining live tests.
+
+## Migration
+
+The mod ID, Java packages, provider registration APIs, config keys and world-data filename remain stable. WorldEdit schematic commands/tracking, random dimension travel and generic give/summon/effect correction are no longer registered or started. Use WorldEdit's own tools or vanilla `/execute in <dimension> run tp ...` for those tasks. Deprecated public helper classes remain available; they are not active integrations. Legacy teleport coordinate grants no longer activate `/tp` interception; integrations should use the explicit safe-travel entry point. See [API_DOCUMENTATION.md](API_DOCUMENTATION.md).
+
+The config filename remains `locatefixer-server.toml`. Forge/NeoForge server configs may be world-scoped by the loader. See [CONFIGURATION.md](CONFIGURATION.md) for practical settings and retained compatibility keys.
+
+## Building
+
+With JDK 21 available on Windows:
+
+```powershell
+.\gradlew.bat test collectArtifacts --no-daemon --console=plain
+```
+
+Production JARs are collected in `build/distributions/`; source JARs are not installable mods. Shared sources live under `src/main/`, with loader and Minecraft adapters under `src/platforms/` and `src/versions/`. This branch is an implementation candidate; automated build evidence does not establish gameplay, multiplayer, modpack or comparative performance acceptance.
+
+For the optional Forge 1.20.1 / Ixeris 4.6.5 development client:
+
+```powershell
+.\gradlew.bat :forge-1.20.1:runClientIxeris -PixerisTest --no-daemon --console=plain
+```
+
+This profile uses Forge 47.4.20 and a separate game directory under `build/smoke/forge-ixeris-client/`. See the [issue #89 reproduction notes](docs/ixeris-issue-89.md) for the automated disposable-world probe and observed results. Ixeris is a development runtime dependency only; normal builds keep Forge 47.4.10 and do not include it.

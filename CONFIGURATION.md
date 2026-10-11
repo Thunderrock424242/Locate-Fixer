@@ -1,48 +1,71 @@
-# Locate Fixer Configuration Guide
+# Locate Fixer configuration
 
-Locate Fixer exposes a server-side configuration file that lets you tune the way the mod searches for structures, biomes, and points of interest. This document walks through where to find the config, how it is reloaded, and what every option does.
+The existing `locatefixer-server.toml` filename and keys remain accepted. Adaptive search and persistent indexing default to enabled. New Fabric files show the practical settings below; Forge/NeoForge retain loader-managed legacy fields so existing configurations do not lose values. Their SERVER configuration can reside in a world's `serverconfig` directory.
 
-## Finding the config file
+Fabric reloads configuration on startup and `/reload`. Forge and NeoForge use loader config events. Restart after changing command availability because commands are registered when the dispatcher is built.
 
-When the mod starts for the first time it writes a `locatefixer-server.toml` file inside the standard Forge config directory:
+## Search and resources
 
-- **Dedicated server:** `<server root>/config/locatefixer-server.toml`
-- **Single-player / client-hosted worlds:** `<minecraft directory>/config/locatefixer-server.toml`
+Fabric uses the key shown; Forge/NeoForge retain the alternate nested path where listed.
 
-Changes to this file automatically propagate when the server reloads configs (for example with `/reload`) or whenever the file is saved while the game is running. The mod also refreshes its cache whenever the config is loaded, so you do not need to restart the server after editing it.
+| Key | Default | Range | Meaning |
+| --- | ---: | ---: | --- |
+| `locateRings` | `[6400,16000,32000,64000,128000,256000]` | Positive integers | Nearby-first block-distance stages; largest is the maximum search distance. |
+| `locateThreadCount` | `1` | 1–8 | Orchestration workers. World calls remain serialized on the server thread. |
+| `queueMaxPending` / `queue.maxPending` | `32` | 1–1024 | Pending job admission limit. Full queues reject new requests. |
+| `searchTimeoutSeconds` / `queue.searchTimeoutSeconds` | `120` | 5–3600 | Cooperative deadline including queue wait. |
+| `poiSearchRadius` | `256` | 16–4096 | Live POI search radius. |
+| `cacheDurationMinutes` | `30` | 1–240 | Recent-search cache lifetime. |
+| `cacheMaxEntries` / `cache.maxEntries` | `512` | 16–65536 | Limit for each bounded cache. |
 
-## Editing tips
+One active search per source is allowed. Player ownership uses UUID, including when commands are executed in another dimension. Reducing queue capacity leaves previously admitted work to drain; it prevents new admission above the new limit. Cancellation removes queued jobs promptly and prevents late results. A vanilla world operation already executing cannot be interrupted safely.
 
-1. Stop the server or pause the single-player game before doing large edits. This ensures the file is not overwritten while you work.
-2. Keep the file in valid [TOML](https://toml.io/en/) format. Every setting is nested inside either the `[locate]` or `[poi]` section.
-3. After saving, watch the server log for messages about the config reloading. Any syntax error will appear there and the previous values will remain active.
+## Persistent discoveries
 
-## Available settings
+The world-specific SavedData file is `world/data/locatefixer_index.dat`.
 
-All values listed below match the defaults that ship with the mod.
+| Key | Default | Range | Meaning |
+| --- | ---: | ---: | --- |
+| `persistentIndexMaxEntries` / `index.maxEntries` | `8192` | 64–100000 | World-wide entry cap. Old discoveries are pruned first. |
+| `persistentIndexExpiryDays` / `index.expiryDays` | `90` | 1–3650 | Maximum discovery age. |
+| `persistentIndexVerificationMinutes` / `index.verificationMinutes` | `30` | 1–10080 | Recent verification window for every indexed target type. |
 
-### `[locate]`
+Only verified discoveries are stored. Index entries suggest a stage; they never prove the nearest answer. POI commands query the live POI manager. Index queries use spatial buckets for the requested dimension/type/target. Reverification writes are throttled and normal world saves persist dirty SavedData. There is no background save or per-query disk rewrite. Restarted entries need verification and datapack reload clears stale records. Unknown newer schema data is kept read-only so downgrading does not overwrite it.
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `locateRings` | `[6400, 16000, 32000, 64000, 128000, 256000]` | Ordered list of radii (in blocks) that the locate command searches through. Increase or decrease entries to scan different distances. Each value must be a positive integer. |
-| `locateThreadCount` | `1` | Number of asynchronous worker threads that process locate requests. Set to a higher value (up to 8) to parallelize searches on large servers, or leave at `1` to process sequentially. |
-| `cacheDurationMinutes` | `30` | Minutes that successful locate results stay cached before expiring. Longer durations reduce work at the cost of stale data. Allowed range is 1–240 minutes. |
-| `cacheChunkGranularity` | `8` | Chunk granularity used when caching locate results. Higher numbers share cached results across a wider area; lower numbers increase precision. Valid range is 1–128. |
-| `biomeSampleRadiusMultiplier` | `1.5` | Multiplier applied to the computed biome sample radius to reduce sample density. Increase it to check fewer sample points per ring (minimum 1.0, maximum 8.0). |
-| `biomeSampleStepMultiplier` | `1.75` | Multiplier applied to the computed biome sample step to reduce sample density. Higher values increase the step size between samples (minimum 1.0, maximum 8.0). |
-| `enableFeatureLocateCommand` | `false` | Enables `/locate feature <placed_feature_id>` for scanning nearby biome generation settings for a matching placed feature (for example tree features). |
+## Explicit safe teleport
 
-### `[poi]`
+| Key | Default | Range | Meaning |
+| --- | ---: | ---: | --- |
+| `teleportCountdownSeconds` / `teleport.countdownSeconds` | `0` | 0–60 | Optional delay after finding a ready, safe destination. |
+| `teleportTimeoutSeconds` / `teleport.timeoutSeconds` | `30` | 5–300 | Chunk readiness and landing-search deadline. |
+| `safeHorizontalRadius` / `teleport.safeHorizontalRadius` | `8` | 1–32 | Nearby landing search extent in blocks. |
+| `safeVerticalRange` / `teleport.safeVerticalRange` | `48` | 4–128 | Initial vertical range near target Y. |
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `poiSearchRadius` | `256` | Radius in blocks used when scanning for points of interest. Raise it to look farther away or lower it for faster but more localized searches. Allowed range is 16–4096 blocks. |
+Only an explicit `/locate … teleport` prepares travel. Existing five-second countdown values remain five seconds; new files default to zero. The optional countdown begins after preparation and is separate from the preparation timeout. Landing search first preserves underground height, then may try nearby loaded surface positions in dimensions without a ceiling. Natural terrain is never changed.
 
-## Advanced usage
+Travel uses at most eight active operations and 128 uniquely owned temporary tickets per server. Landing checks share a bounded server-tick budget and each search is capped. Large player hitboxes or unavailable safe terrain can cause a clear failure rather than expanding the search without limit.
 
-- The `locateRings` list can be tailored for custom world scales. For example, skyblock-style worlds can use a much smaller set like `[1024, 2048, 4096]` to reduce wasted scans.
-- If you install heavy structure packs, increase `locateThreadCount` and `cacheDurationMinutes` to balance the additional work.
-- Combining a higher `cacheChunkGranularity` with longer cache durations is useful on exploration-heavy servers where many players run locate commands in the same region.
+## Optional tools
 
-Feel free to experiment—the mod clamps every value to the safe ranges listed above, so an out-of-range number will snap to the nearest valid bound instead of crashing the server.
+| Key | Default | Meaning |
+| --- | ---: | --- |
+| `enableNearestCommand` | `false` | Registers nearest aggregate searches. |
+| `enableAsyncLocatorConflictMode` / `integrations.asyncLocatorConflictMode` | `true` | Yields native locate ownership to detected Async Locator Refined. |
+| `benchmarkEnabled` / `benchmark.enabled` | `false` | Allows the operator benchmark report. |
+| `enableCommandErrorFixer` / `commands.enableCommandErrorFixer` | `true` | Locate-only registry-aware suggestions when this mod owns native locate. |
+
+Diagnostics require permission 2 and run only when invoked. Benchmark reporting reads measured calls and existing Minecraft tick samples. When enabled, the existing job/tick lifecycle also retains up to 256 jobs through their next overlapping tick to measure elapsed tick intervals, including work between ticks. There is no additional background manager; this interval capture is inactive when benchmarking is disabled.
+
+## Retained compatibility keys
+
+Existing files can keep these keys without migration or deletion:
+
+- `adaptiveSearchEnabled` and `persistentIndexEnabled` / `index.enabled`: default true; false is a conservative troubleshooting fallback. Disabling the index does not delete its file.
+- `cacheChunkGranularity`, `biomeSampleRadiusMultiplier`, `biomeSampleStepMultiplier`: accepted legacy tuning; exact-origin caches and vanilla biome sampling supersede them.
+- `teleportPreloadRadiusChunks`: accepted; tickets now follow the actual bounded landing footprint.
+- `teleportCountdownEnabled`: an existing false still disables the optional countdown.
+- `allowWaterLanding`, `allowLavaLanding`, `allowFireLanding`, `allowPowderSnowLanding`: accepted but cannot relax the safety checks. Safe travel always rejects these hazards.
+- `returnPointEnabled`, `enableBiomeSpyCompatibility`, `enableCompassCompatibility`: retained fields with no additional command, manager or interception.
+- `enableFeatureLocateCommand`: preserves the disabled-by-default feature-capability lookup for API/command compatibility.
+
+Values outside supported ranges are clamped. Invalid Fabric scalar values fall back to defaults; failure to read the file logs an error and keeps the last applied configuration. Existing configs are not rewritten by Fabric.
