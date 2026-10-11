@@ -1,6 +1,6 @@
 package com.thunder.locatefixer.api;
 
-/** The stable target categories understood by Locate Unbound. */
+/** The stable target categories understood by Locate Fixer. */
 public enum LocatorTargetType {
     STRUCTURE,
     BIOME,

@@ -4,7 +4,7 @@
 > agents to implement the independent stages with regression tests first.
 
 **Goal:** Deliver the requested safe, simple Locate Fixer utility while retaining
-the Locate Unbound discovery engine and public compatibility seams.
+the discovery functionality and public compatibility seams.
 
 **Architecture:** Keep shared backends, a bounded job owner, nearby-first planner,
 memory cache and world index. Live world access stays on the server thread.

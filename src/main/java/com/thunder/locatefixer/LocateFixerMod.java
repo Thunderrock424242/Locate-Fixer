@@ -47,7 +47,7 @@ public final class LocateFixerMod {
     public static void onServerStarting() {
         AsyncLocateHandler.reloadConfig();
         LocateRuntime.reloadConfig();
-        LOGGER.info("[LocateUnbound] Server starting - locate engine ready ({} rings configured).",
+        LOGGER.info("[LocateFixer] Server starting - locate engine ready ({} rings configured).",
                 LocateFixerConfig.SERVER.locateRings.get().size());
     }
 

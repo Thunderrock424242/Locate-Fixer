@@ -1,6 +1,6 @@
 # Locate Fixer
 
-Locate Fixer improves Minecraft's familiar `/locate structure`, `/locate biome` and `/locate poi` workflow with nearby-first search planning, a bounded queue, recent-result caches and a persistent discovery index. The Locate Unbound engine powers these features by default.
+Locate Fixer improves Minecraft's familiar `/locate structure`, `/locate biome` and `/locate poi` workflow with nearby-first search planning, a bounded queue, recent-result caches and a persistent discovery index.
 
 Ordinary locate reports coordinates. Add `teleport` explicitly to request safe player travel:
 

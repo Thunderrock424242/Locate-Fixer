@@ -28,7 +28,7 @@ public final class LocatorIndexState {
         int schemaVersion = root.contains("schemaVersion", Tag.TAG_INT)
                 ? root.getInt("schemaVersion") : 0;
         if (schemaVersion > SCHEMA_VERSION) {
-            LocateFixerMod.LOGGER.warn("[LocateUnbound] Locator index schema {} is newer than supported schema {}; ignoring it.",
+            LocateFixerMod.LOGGER.warn("[LocateFixer] Locator index schema {} is newer than supported schema {}; ignoring it.",
                     schemaVersion, SCHEMA_VERSION);
             state.futureSchemaData = root.copy();
             return state;
@@ -53,7 +53,7 @@ public final class LocatorIndexState {
             }
         }
         if (skipped > 0) {
-            LocateFixerMod.LOGGER.warn("[LocateUnbound] Skipped {} invalid locator index entries.", skipped);
+            LocateFixerMod.LOGGER.warn("[LocateFixer] Skipped {} invalid locator index entries.", skipped);
         }
         return state;
     }

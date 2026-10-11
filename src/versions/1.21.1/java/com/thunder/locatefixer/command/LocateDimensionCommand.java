@@ -171,9 +171,9 @@ public final class LocateDimensionCommand {
                 throw cancellation;
             } catch (Exception failure) {
                 job.fail(failure);
-                LocateFixerMod.LOGGER.error("[LocateUnbound] Dimension biome search failed", failure);
+                LocateFixerMod.LOGGER.error("[LocateFixer] Dimension biome search failed", failure);
                 targetLevel.getServer().execute(() -> source.sendFailure(Component.literal(
-                        "Locate Unbound error (dimension): " + failure.getMessage())));
+                        "Locate Fixer error (dimension): " + failure.getMessage())));
             }
         });
 

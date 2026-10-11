@@ -22,7 +22,7 @@ public final class LocateIntegrationRegistry {
                 "coexistence mode; its existing worker manager remains the owner of compass searches"));
         detect(new Descriptor("async_locator_refined", "Async Locator Refined",
                 List.of("asynclocator", "async_locator", "async_locator_refined"),
-                "conflict-safe mode; Locate Unbound yields vanilla /locate interception to the other mod"));
+                "conflict-safe mode; Locate Fixer yields vanilla /locate interception to the other mod"));
         detect(new Descriptor("worldedit", "WorldEdit", List.of("worldedit"),
                 "no schematic scanning or command registration; legacy API remains available"));
     }
@@ -62,7 +62,7 @@ public final class LocateIntegrationRegistry {
         IntegrationStatus status = new IntegrationStatus(integration, !matches.isEmpty(), List.copyOf(matches));
         statuses.put(integration.id(), status);
         if (status.detected()) {
-            LocateFixerMod.LOGGER.info("[LocateUnbound] Detected {}: {}", integration.displayName(), integration.behavior());
+            LocateFixerMod.LOGGER.info("[LocateFixer] Detected {}: {}", integration.displayName(), integration.behavior());
         }
     }
 

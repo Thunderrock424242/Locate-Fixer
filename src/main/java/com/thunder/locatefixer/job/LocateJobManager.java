@@ -266,7 +266,7 @@ public final class LocateJobManager {
 
         @Override
         public Thread newThread(Runnable runnable) {
-            Thread thread = new Thread(runnable, "LocateUnbound-Search-" + counter.incrementAndGet());
+            Thread thread = new Thread(runnable, "LocateFixer-Search-" + counter.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         }

@@ -92,7 +92,7 @@ public class StructureLocatorRegistry {
     }
 
     /**
-     * Tries to locate a registered structure. Locate Unbound invokes this method on
+     * Tries to locate a registered structure. Locate Fixer invokes this method on
      * Minecraft's server thread when servicing the public command.
      */
     public static Optional<BlockPos> locate(String id, ServerLevel level, BlockPos origin, int maxRadius) {

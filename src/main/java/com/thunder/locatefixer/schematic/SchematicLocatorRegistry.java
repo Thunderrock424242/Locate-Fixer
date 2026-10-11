@@ -89,12 +89,12 @@ public class SchematicLocatorRegistry {
                         String name = file.getFileName().toString().replace(".schem", "");
                         String key = normalizeId(name);
                         if (SCHEMATIC_NAMES.add(key)) {
-                            LocateFixerMod.LOGGER.info("[LocateUnbound] Indexed schematic '{}' (record its pasted anchor with /locate schematic record {})",
+                            LocateFixerMod.LOGGER.info("[LocateFixer] Indexed schematic '{}' (record its pasted anchor with /locate schematic record {})",
                                     name, key);
                         }
                     });
         } catch (IOException e) {
-            LocateFixerMod.LOGGER.error("[LocateUnbound] Failed to scan schematics: {}", e.getMessage());
+            LocateFixerMod.LOGGER.error("[LocateFixer] Failed to scan schematics: {}", e.getMessage());
         }
     }
 

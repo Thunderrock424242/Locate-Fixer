@@ -67,7 +67,7 @@ final class FabricConfigBridge {
             AsyncLocateHandler.reloadConfig();
             LocateRuntime.reloadConfig();
         } catch (Exception exception) {
-            LocateFixerMod.LOGGER.error("[LocateUnbound] Could not load Fabric config '{}'; using the last valid values.",
+            LocateFixerMod.LOGGER.error("[LocateFixer] Could not load Fabric config '{}'; using the last valid values.",
                     CONFIG_PATH, exception);
         }
     }

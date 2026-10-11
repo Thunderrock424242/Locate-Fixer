@@ -14,7 +14,7 @@ public final class WorldEditHook {
             return;
         }
         announced = true;
-        LocateFixerMod.LOGGER.info("[LocateUnbound] WorldEdit detected. After a paste, record its anchor with "
+        LocateFixerMod.LOGGER.info("[LocateFixer] WorldEdit detected. After a paste, record its anchor with "
                 + "/locate schematic record <name>.");
     }
 }

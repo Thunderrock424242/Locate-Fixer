@@ -69,7 +69,7 @@ public class AsyncLocateHandler {
             try {
                 task.run();
             } catch (Exception e) {
-                LOGGER.error("[LocateUnbound] Async task '{}' failed", taskName, e);
+                LOGGER.error("[LocateFixer] Async task '{}' failed", taskName, e);
             }
         }, executor());
     }
@@ -149,7 +149,7 @@ public class AsyncLocateHandler {
                     job.searching(Math.max(2, (step * 95) / totalSteps),
                             "Structure ring " + step + "/" + totalSteps + " (" + scanRadius + " blocks)");
                     sendRingProgressUpdate(level, source, "structure", scanRadius, step, totalSteps);
-                    LOGGER.info("[LocateUnbound] Scanning for structure up to {} blocks", scanRadius);
+                    LOGGER.info("[LocateFixer] Scanning for structure up to {} blocks", scanRadius);
 
                     int scanRadiusChunks = structureSearchRings(scanRadius, placementStep);
                     job.incrementCounter("backend_calls");
@@ -163,7 +163,7 @@ public class AsyncLocateHandler {
                         Holder<Structure> holder = result.getSecond();
                         String foundId = holderName(holder);
                         if (!allowedStructureIds.contains(foundId)) {
-                            LOGGER.warn("[LocateUnbound] Ignoring locate candidate '{}' for request '{}'; resolved allowed ids={}",
+                            LOGGER.warn("[LocateFixer] Ignoring locate candidate '{}' for request '{}'; resolved allowed ids={}",
                                     foundId, canonicalTarget, allowedStructureIds);
                             return Optional.empty();
                         }
@@ -200,9 +200,9 @@ public class AsyncLocateHandler {
             } catch (Exception e) {
                 if (e instanceof CancellationException cancellation) throw cancellation;
                 job.fail(e);
-                LOGGER.error("[LocateUnbound] Unexpected error while locating structure", e);
+                LOGGER.error("[LocateFixer] Unexpected error while locating structure", e);
                 executeOnServerThread(level, () ->
-                        source.sendFailure(Component.literal("Locate Unbound error (structure): " + e.getMessage())));
+                        source.sendFailure(Component.literal("Locate Fixer error (structure): " + e.getMessage())));
             }
         });
     }
@@ -312,9 +312,9 @@ public class AsyncLocateHandler {
             } catch (Exception e) {
                 if (e instanceof CancellationException cancellation) throw cancellation;
                 job.fail(e);
-                LOGGER.error("[LocateUnbound] Unexpected error while locating custom structure '{}'", structureId, e);
+                LOGGER.error("[LocateFixer] Unexpected error while locating custom structure '{}'", structureId, e);
                 executeOnServerThread(level, () ->
-                        source.sendFailure(Component.literal("Locate Unbound error (custom structure): " + e.getMessage())));
+                        source.sendFailure(Component.literal("Locate Fixer error (custom structure): " + e.getMessage())));
             }
         });
     }
@@ -359,9 +359,9 @@ public class AsyncLocateHandler {
             } catch (Exception failure) {
                 if (failure instanceof CancellationException cancellation) throw cancellation;
                 job.fail(failure);
-                LOGGER.error("[LocateUnbound] Unexpected error while locating feature '{}'", featureId, failure);
+                LOGGER.error("[LocateFixer] Unexpected error while locating feature '{}'", featureId, failure);
                 executeOnServerThread(level, () -> source.sendFailure(Component.literal(
-                        "Locate Unbound error (feature): " + failure.getMessage())));
+                        "Locate Fixer error (feature): " + failure.getMessage())));
             }
         });
     }
@@ -393,7 +393,7 @@ public class AsyncLocateHandler {
                 if (!biomeSourceStatus.targetAvailable()) {
                     String dimension = level.dimension().location().toString();
                     String failureMessage = LocateSearchMessages.biomeUnavailable(biome.asPrintable(), dimension);
-                    LOGGER.warn("[LocateUnbound] Skipping biome radius search for '{}' in {}: active source {} exposes {} possible biome(s), but none match the target.",
+                    LOGGER.warn("[LocateFixer] Skipping biome radius search for '{}' in {}: active source {} exposes {} possible biome(s), but none match the target.",
                             biome.asPrintable(), dimension, biomeSourceStatus.sourceType(), biomeSourceStatus.possibleBiomeCount());
                     executeOnServerThread(level, () -> source.sendFailure(Component.literal(failureMessage)));
                     // This is a worldgen availability rejection, not evidence that the configured radius was searched.
@@ -438,7 +438,7 @@ public class AsyncLocateHandler {
                     job.searching(Math.max(2, (step * 95) / totalSteps),
                             "Biome ring " + step + "/" + totalSteps + " (" + scanRadius + " blocks)");
                     sendRingProgressUpdate(level, source, "biome", scanRadius, step, totalSteps);
-                    LOGGER.info("[LocateUnbound] Scanning for biome up to {} blocks", scanRadius);
+                    LOGGER.info("[LocateFixer] Scanning for biome up to {} blocks", scanRadius);
 
                     Pair<BlockPos, Holder<Biome>> result = callOnServerThread(level, () ->
                             level.findClosestBiome3d(biome, origin, scanRadius,
@@ -482,9 +482,9 @@ public class AsyncLocateHandler {
             } catch (Exception e) {
                 if (e instanceof CancellationException cancellation) throw cancellation;
                 job.fail(e);
-                LOGGER.error("[LocateUnbound] Unexpected error while locating biome", e);
+                LOGGER.error("[LocateFixer] Unexpected error while locating biome", e);
                 executeOnServerThread(level, () ->
-                        source.sendFailure(Component.literal("Locate Unbound error (biome): " + e.getMessage())));
+                        source.sendFailure(Component.literal("Locate Fixer error (biome): " + e.getMessage())));
             }
         });
     }
@@ -501,7 +501,7 @@ public class AsyncLocateHandler {
             try {
                 int poiRadius = configuredPoiRadius;
                 job.searching(25, "Searching POIs within " + poiRadius + " blocks");
-                LOGGER.info("[LocateUnbound] Scanning for POI within {} blocks", poiRadius);
+                LOGGER.info("[LocateFixer] Scanning for POI within {} blocks", poiRadius);
                 executeOnServerThread(level, () -> source.sendSuccess(() ->
                         Component.literal("Searching for " + poiType.asPrintable() + "..."), false));
 
@@ -549,9 +549,9 @@ public class AsyncLocateHandler {
             } catch (Exception e) {
                 if (e instanceof CancellationException cancellation) throw cancellation;
                 job.fail(e);
-                LOGGER.error("[LocateUnbound] Unexpected error while locating POI", e);
+                LOGGER.error("[LocateFixer] Unexpected error while locating POI", e);
                 executeOnServerThread(level, () ->
-                        source.sendFailure(Component.literal("Locate Unbound error (POI): " + e.getMessage())));
+                        source.sendFailure(Component.literal("Locate Fixer error (POI): " + e.getMessage())));
             }
         });
     }
@@ -633,8 +633,8 @@ public class AsyncLocateHandler {
             } catch (Exception e) {
                 if (e instanceof CancellationException cancellation) throw cancellation;
                 job.fail(e);
-                LOGGER.error("[LocateUnbound] Unexpected error while locating nearest structures", e);
-                executeOnServerThread(level, () -> source.sendFailure(Component.literal("Locate Unbound error (structure multi): " + e.getMessage())));
+                LOGGER.error("[LocateFixer] Unexpected error while locating nearest structures", e);
+                executeOnServerThread(level, () -> source.sendFailure(Component.literal("Locate Fixer error (structure multi): " + e.getMessage())));
             }
         });
 
@@ -720,8 +720,8 @@ public class AsyncLocateHandler {
             } catch (Exception e) {
                 if (e instanceof CancellationException cancellation) throw cancellation;
                 job.fail(e);
-                LOGGER.error("[LocateUnbound] Unexpected error while locating nearest biomes", e);
-                executeOnServerThread(level, () -> source.sendFailure(Component.literal("Locate Unbound error (biome multi): " + e.getMessage())));
+                LOGGER.error("[LocateFixer] Unexpected error while locating nearest biomes", e);
+                executeOnServerThread(level, () -> source.sendFailure(Component.literal("Locate Fixer error (biome multi): " + e.getMessage())));
             }
         });
 
@@ -1125,7 +1125,7 @@ public class AsyncLocateHandler {
         LocateSettings newSettings = loadSettings();
         SETTINGS = newSettings;
         clearCaches();
-        LOGGER.info("[LocateUnbound] Reloaded locate settings: {} rings, {}ms cache, {} thread(s).",
+        LOGGER.info("[LocateFixer] Reloaded locate settings: {} rings, {}ms cache, {} thread(s).",
                 newSettings.rings().length, newSettings.cacheDurationMs(), newSettings.threadCount());
     }
 
@@ -1171,7 +1171,7 @@ public class AsyncLocateHandler {
 
             return new LocateSettings(rings, poiRadius, cacheDurationMs, cacheGranularity, threadCount, radiusMultiplier, stepMultiplier);
         } catch (IllegalStateException ex) {
-            LOGGER.debug("[LocateUnbound] Config not ready yet, using default locate settings.");
+            LOGGER.debug("[LocateFixer] Config not ready yet, using default locate settings.");
             return DEFAULT_SETTINGS;
         }
     }
@@ -1201,7 +1201,7 @@ public class AsyncLocateHandler {
         AtomicInteger counter = new AtomicInteger();
         return runnable -> {
             Thread thread = new Thread(runnable);
-            thread.setName("LocateUnbound-Background-" + counter.incrementAndGet());
+            thread.setName("LocateFixer-Background-" + counter.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         };

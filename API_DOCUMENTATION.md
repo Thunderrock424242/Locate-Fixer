@@ -1,6 +1,6 @@
 # Locate Fixer API
 
-Locate Fixer 4.0 retains the Locate Unbound unified provider API for structures, biomes, POIs, placed features, and generic locations. The technical package and mod ID remain `com.thunder.locatefixer` and `locatefixer` for source, binary and world compatibility.
+Locate Fixer 4.0 provides a unified provider API for structures, biomes, POIs, placed features, and generic locations. The technical package and mod ID remain `com.thunder.locatefixer` and `locatefixer` for source, binary and world compatibility.
 
 ## Unified provider
 
@@ -82,7 +82,7 @@ Provider IDs must be stable, lowercase, namespaced IDs. Duplicate IDs are reject
 - `estimatedSearchCost()` is a relative 0–100 planning hint.
 - `safelyTeleportable()` defaults to true. When false, results use plain coordinates. Provider output never grants automatic travel or intercepts `/tp`; ordinary coordinate links suggest text only.
 - Check `LocateCancellationToken` during bounded loops. Cancellation is cooperative; do not interrupt a world call or retain the supplied level.
-- Return positions in the declared result dimension and within the supplied maximum radius. Locate Unbound rejects out-of-scope results.
+- Return positions in the declared result dimension and within the supplied maximum radius. Locate Fixer rejects out-of-scope results.
 - Use `verified=false` or `generated=false` when the provider only predicts a location. Do not claim generation from placement metadata alone.
 
 ### Cache policy and verification

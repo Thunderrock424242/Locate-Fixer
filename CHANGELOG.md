@@ -2,7 +2,7 @@
 
 ## 4.0.0 development — Locate Fixer safety and correctness refactor
 
-Based on the `1.21.1` development architecture. Locate Fixer is the public name; Locate Unbound remains the discovery engine. The technical `locatefixer` ID, Java APIs, resource paths, configuration keys and world index filename are preserved.
+Based on the `1.21.1` development architecture. All features use Locate Fixer branding. The technical `locatefixer` ID, Java APIs, configuration keys and world index filename are preserved.
 
 ### Search
 
@@ -31,6 +31,7 @@ Based on the `1.21.1` development architecture. Locate Fixer is the public name;
 
 ### Scope and compatibility
 
+- Use Locate Fixer throughout documentation, mod descriptions, logs, errors, worker names and logo paths. Administrative commands use the single `/locatefixer` root.
 - Remove schematic tracking/commands, random dimension travel and give/summon/effect correction from the runtime. Retain public compatibility helpers and document replacements.
 - Keep nearest/provider/feature-capability tools optional and diagnostics operator-invoked.
 - Preserve conflict yielding to Async Locator Refined and use vanilla registries/generator hooks for other worldgen mods.

@@ -1,8 +1,8 @@
 # Locate Fixer
 
-![Locate Unbound engine logo](branding/locate-unbound-logo-128.png)
+![Locate Fixer logo](branding/locate-fixer-logo-128.png)
 
-Locate Fixer is a server-first locate utility powered by the Locate Unbound discovery engine. Install it and use Minecraft's familiar `/locate` commands. Adaptive planning, recent-search caching, and a persistent world discovery index are enabled by default. The technical ID remains `locatefixer`.
+Locate Fixer is a server-first locate utility. Install it and use Minecraft's familiar `/locate` commands. Adaptive planning, recent-search caching, and a persistent world discovery index are enabled by default. The technical ID remains `locatefixer`.
 
 ## Supported targets
 
@@ -53,7 +53,7 @@ Workers handle orchestration. Minecraft world generation, biome/POI queries, pro
 
 - `/locate nearest` remains opt-in with `enableNearestCommand`; it is an aggregate sampling tool.
 - `/xlocate customstructure <id>` supports unified and legacy providers.
-- `/locatefixer diagnostics` shows resource limits, backend ownership and detected integrations. `/locateunbound` is retained as an alias.
+- `/locatefixer diagnostics` shows resource limits, backend ownership and detected integrations.
 - `/locatefixer benchmark` requires `benchmarkEnabled`. It reports job wall time, server-call/wait timings, cache/index counters, elapsed intervals between ticks overlapping those calls, and Minecraft's recent tick samples. Neither measure attributes other server work exclusively to the job.
 - The legacy feature-capability command remains opt-in. It identifies a suitable biome rather than proving an exact placed feature.
 

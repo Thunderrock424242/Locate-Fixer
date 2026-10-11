@@ -34,12 +34,11 @@ public final class LocateControlCommand {
                 .requires(source -> source.hasPermission(2))
                 .then(literal("status").executes(context -> status(context.getSource())))
                 .then(literal("cancel").executes(context -> cancel(context.getSource()))));
-        dispatcher.register(buildAdminRoot("locateunbound"));
-        dispatcher.register(buildAdminRoot("locatefixer"));
+        dispatcher.register(buildAdminRoot());
     }
 
-    private static LiteralArgumentBuilder<CommandSourceStack> buildAdminRoot(String name) {
-        return literal(name)
+    private static LiteralArgumentBuilder<CommandSourceStack> buildAdminRoot() {
+        return literal("locatefixer")
                 .then(literal("status").executes(context -> status(context.getSource())))
                 .then(literal("cancel").executes(context -> cancel(context.getSource())))
                 .then(literal("diagnostics")
