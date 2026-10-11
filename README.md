@@ -67,13 +67,24 @@ The config filename remains `locatefixer-server.toml`. Forge/NeoForge server con
 
 ## Building
 
+`main` is the development branch for all supported Minecraft versions and loaders. One checkout contains the shared implementation and all four Gradle targets; develop and submit pull requests against `main`.
+
 With JDK 21 available on Windows:
 
 ```powershell
 .\gradlew.bat test collectArtifacts --no-daemon --console=plain
 ```
 
-Production JARs are collected in `build/distributions/`; source JARs are not installable mods. Shared sources live under `src/main/`, with loader and Minecraft adapters under `src/platforms/` and `src/versions/`. This branch is an implementation candidate; automated build evidence does not establish gameplay, multiplayer, modpack or comparative performance acceptance.
+This command tests and builds every target, then collects its production JAR in `build/distributions/`. For a single target, use its Gradle project:
+
+| Target | Build command |
+| --- | --- |
+| Forge 1.20.1 | `.\gradlew.bat :forge-1.20.1:build` |
+| Fabric 1.20.1 | `.\gradlew.bat :fabric-1.20.1:build` |
+| NeoForge 1.21.1 | `.\gradlew.bat :neoforge-1.21.1:build` |
+| Fabric 1.21.1 | `.\gradlew.bat :fabric-1.21.1:build` |
+
+GitHub Actions builds this same matrix for pushes to `main`, pull requests targeting `main`, and manual runs. Source JARs are not installable mods. Shared sources live under `src/main/`, with loader and Minecraft adapters under `src/platforms/` and `src/versions/`. The 4.0 code remains a development candidate; automated build evidence does not establish gameplay, multiplayer, modpack or comparative performance acceptance.
 
 For the optional Forge 1.20.1 / Ixeris 4.6.5 development client:
 
